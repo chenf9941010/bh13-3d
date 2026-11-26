@@ -51,6 +51,13 @@ input[type=range]{width:100%;accent-color:var(--acc)}
  <label class="l"><input type="checkbox" id="cLbl" checked>樓層標示</label>
  <label class="l"><input type="checkbox" id="cLin" checked>地界／建築線／落物曲線</label>
  <label class="l"><input type="checkbox" id="cClip" checked>挖除舊飯店實景</label>
+ <h2>建物樓層（結構進度）</h2>
+ <div style="font-size:14px">A棟 結構完成至 <b id="bAv"></b></div>
+ <input type="range" id="bA" min="0" step="1">
+ <div style="font-size:14px">B棟 結構完成至 <b id="bBv"></b></div>
+ <input type="range" id="bB" min="0" step="1">
+ <div><button id="bAll">全部完成</button><button id="bNone">全部清除</button></div>
+ <label class="l"><input type="checkbox" id="cSync">鷹架跟隨結構（高出作業樓版約1.2m）</label>
  <h2>鷹架設定</h2>
  <div class="seg" id="sMode"><button data-v="plan" class="on">依規劃圖</button><button data-v="ground">落地</button><button data-v="cant">懸挑每N層</button></div>
  <div id="segRow" style="margin-top:6px;opacity:.4">每段 <span class="seg" id="sN"><button data-v="5">5</button><button data-v="6" class="on">6</button><button data-v="7">7</button></span> 層</div>
@@ -120,7 +127,7 @@ async function start(){
  await new Promise(r=>{let done=false;tileset.initialTilesLoaded.addEventListener(()=>{if(!done){done=true;r()}});setTimeout(()=>{if(!done){done=true;r()}},12000)});
  try{const c=await viewer.scene.sampleHeightMostDetailed([Cesium.Cartographic.fromDegrees(META.probe[0],META.probe[1])]);if(c[0]&&isFinite(c[0].height))baseH=c[0].height}catch(e){}
  const mm=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
- model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=13',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
+ model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=14',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
  viewer.scene.primitives.add(model);
  const ground=viewer.entities.add({polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(siteLL().flat()),height:baseH,material:Cesium.Color.fromCssColorString('#8d9196')}});
  const linePos=l=>Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.map(sh).flatMap(p=>[p[0],p[1],baseH+dH+0.25]));
@@ -133,7 +140,6 @@ async function start(){
  const show=(n,v)=>{try{const nd=model.getNode(n);if(nd)nd.show=v}catch(e){}};
  const BN=['BR 309玫瑰金','橫磚','豎磚','擴張網','暮冬','WINDOW','預設值'];
  const el=id=>document.getElementById(id);
- el('cBld').onchange=e=>BN.forEach(n=>show(n,e.target.checked));
  const enuM=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
  // ---------- 鷹架（框式施工架，參照「示範大樓 結構3D」畫法） ----------
  const SC={mode:'plan',N:6,span:1.829,lift:1.725};
@@ -143,6 +149,17 @@ async function start(){
  const fname=(T,k)=>k<=TW[T].topF?k+'F':'R'+(k-TW[T].topF)+'F';
  const maxK=T=>{let k=1;while(lvl(k+1)<TW[T].top-0.01)k++;return k};
  const H={};TS.forEach(T=>{H[T]=maxK(T);const r=el('h'+T);r.max=maxK(T);r.value=H[T]});
+ // ---------- 建物樓層（模型已依 A/B/連接段 × 樓層切分，節點名「棟|層|材質」） ----------
+ const BH={};TS.forEach(T=>{BH[T]=maxK(T);const r=el('b'+T);r.max=maxK(T);r.value=BH[T]});
+ const bldNodes=[];['A','B','C'].forEach(T=>{for(let k=1;k<=40;k++)BN.forEach(n=>{let nd=null;try{nd=model.getNode(T+'|'+k+'|'+n)}catch(e){}if(nd)bldNodes.push({T,k,nd})})});
+ const bLbl=T=>BH[T]?fname(T,BH[T])+(BH[T]>=maxK(T)?'（全部）':' 樓版'):'未施工';
+ function bldVis(){const on=el('cBld').checked,mx=Math.max(BH.A,BH.B);bldNodes.forEach(o=>o.nd.show=on&&o.k<=(o.T==='C'?mx:BH[o.T]));TS.forEach(T=>el('b'+T+'v').textContent=bLbl(T))}
+ const syncScaf=()=>{if(!el('cSync').checked)return false;TS.forEach(T=>{H[T]=BH[T]>=maxK(T)?maxK(T):Math.max(0,BH[T]-1);el('h'+T).value=H[T]});return true};
+ TS.forEach(T=>el('b'+T).addEventListener('input',e=>{BH[T]=+e.target.value;bldVis();if(syncScaf())later()}));
+ el('bAll').onclick=()=>{TS.forEach(T=>{BH[T]=maxK(T);el('b'+T).value=BH[T]});bldVis();if(syncScaf())build()};
+ el('bNone').onclick=()=>{TS.forEach(T=>{BH[T]=0;el('b'+T).value=0});bldVis();if(syncScaf())build()};
+ el('cSync').onchange=()=>{if(syncScaf())build()};
+ el('cBld').onchange=bldVis;bldVis();
  function offsetRing(r,d){const n=r.length,o=[];for(let i=0;i<n;i++){const p0=r[(i-1+n)%n],p1=r[i],p2=r[(i+1)%n];
    const nr=(a,b)=>{let x=b[0]-a[0],y=b[1]-a[1],L=Math.hypot(x,y)||1;return[y/L,-x/L]};
    const n1=nr(p0,p1),n2=nr(p1,p2);let mx=n1[0]+n2[0],my=n1[1]+n2[1];const nm=Math.hypot(mx,my);
@@ -232,9 +249,9 @@ async function start(){
  segBind('sMode',v=>{SC.mode=v;el('segRow').style.opacity=v==='cant'?1:.4;build()});
  segBind('sN',v=>{SC.N=+v;build()});
  let tmr=null;const later=()=>{clearTimeout(tmr);tmr=setTimeout(build,150)};
- TS.forEach(T=>el('h'+T).addEventListener('input',e=>{H[T]=+e.target.value;el('h'+T+'v').textContent=H[T]?fname(T,H[T]):'未搭設';later()}));
- el('hAll').onclick=()=>{TS.forEach(T=>{H[T]=maxK(T);el('h'+T).value=H[T]});build()};
- el('hNone').onclick=()=>{TS.forEach(T=>{H[T]=0;el('h'+T).value=0});build()};
+ TS.forEach(T=>el('h'+T).addEventListener('input',e=>{el('cSync').checked=false;H[T]=+e.target.value;el('h'+T+'v').textContent=H[T]?fname(T,H[T]):'未搭設';later()}));
+ el('hAll').onclick=()=>{el('cSync').checked=false;TS.forEach(T=>{H[T]=maxK(T);el('h'+T).value=H[T]});build()};
+ el('hNone').onclick=()=>{el('cSync').checked=false;TS.forEach(T=>{H[T]=0;el('h'+T).value=0});build()};
  ['cFr','cNet','cSkt','cLbl'].forEach(id=>el(id).addEventListener('change',vis));
  build();
  hs.addEventListener('input',later);
