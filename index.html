@@ -30,6 +30,9 @@ input[type=range]{width:100%;accent-color:var(--acc)}
 #tg{display:none}
 @media(max-width:700px){#panel{left:0;right:0;top:auto;bottom:0;width:auto;max-height:45%;border-radius:14px 14px 0 0}#panel.closed{max-height:54px;overflow:hidden}#tg{display:inline-block}#meas{bottom:auto;top:70px}}
 .cesium-viewer-bottom{z-index:4}
+.seg{display:inline-flex;gap:0}.seg button{margin:0;border-radius:0}.seg button:first-child{border-radius:9px 0 0 9px}.seg button:last-child{border-radius:0 9px 9px 0}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}.tbl th,.tbl td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}.tbl th:first-child,.tbl td:first-child{text-align:left}
+.price{width:64px;padding:2px 4px;border:1px solid var(--line);border-radius:6px;background:#11151a;color:var(--ink);text-align:right;font-size:12px}
 </style>
 </head>
 <body>
@@ -42,22 +45,30 @@ input[type=range]{width:100%;accent-color:var(--acc)}
  <div><button id="mb">點兩點量距離</button><button id="mc">清除</button></div>
  <h2>圖層</h2>
  <label class="l"><input type="checkbox" id="cBld" checked>BH13 建物</label>
- <label class="l"><input type="checkbox" id="cFr" checked>鷹架（框式施工架＋踏板）</label>
+ <label class="l"><input type="checkbox" id="cFr" checked>鷹架（框式施工架）</label>
  <label class="l"><input type="checkbox" id="cNet" checked>安全網（藍色防塵網）</label>
- <label class="l"><input type="checkbox" id="cSkt" checked>斜籬（3F起每5層）</label>
+ <label class="l"><input type="checkbox" id="cSkt" checked>斜籬／三角托架</label>
  <label class="l"><input type="checkbox" id="cLbl" checked>樓層標示</label>
  <label class="l"><input type="checkbox" id="cLin" checked>地界／建築線／落物曲線</label>
  <label class="l"><input type="checkbox" id="cClip" checked>挖除舊飯店實景</label>
- <h2>鷹架搭設高度</h2>
+ <h2>鷹架設定</h2>
+ <div class="seg" id="sMode"><button data-v="ground">落地</button><button data-v="cant" class="on">三角架懸挑</button></div>
+ <div id="segRow" style="margin-top:6px">每段 <span class="seg" id="sN"><button data-v="5">5</button><button data-v="6" class="on">6</button><button data-v="7">7</button></span> 層</div>
+ <div style="font-size:14px;margin-top:6px">離結構體 <b id="sDv">30 cm</b></div>
+ <input type="range" id="sD" min="20" max="60" step="5" value="30">
  <div style="font-size:14px">A棟 搭設至 <b id="hAv"></b></div>
  <input type="range" id="hA" min="0" step="1">
  <div style="font-size:14px">B棟 搭設至 <b id="hBv"></b></div>
  <input type="range" id="hB" min="0" step="1">
  <div><button id="hAll">全部搭到頂</button><button id="hNone">全部拆除</button></div>
+ <div id="segList" style="font-size:12px;color:var(--mute);margin-top:6px"></div>
+ <h2>鷹架數量（已搭設範圍，A+B 棟）</h2>
+ <div style="overflow-x:auto"><table class="tbl" id="scafTbl"></table></div>
+ <div style="display:flex;justify-content:space-between;margin-top:4px"><span>合計（未稅）</span><b id="scafSum" style="color:var(--acc)"></b></div>
  <h2>模型地面高程微調 <span id="hv"></span></h2>
  <input type="range" id="hs" min="-6" max="6" step="0.1" value="0">
  <h2>說明</h2>
- <p style="margin:0;font-size:12px;color:var(--mute)">周邊實景：Google Photorealistic 3D Tiles（需自己的 API 金鑰）。建物：2026709_bh13_模型.3dm。地界、建築線、落物曲線：A04 五合一放樣圖。鷹架：框式施工架，離牆0.3m、架寬0.9m、立架間距1.83m；安全網藍色；斜籬外挑2m、仰角30°，設於3F、8F、13F、18F、23F；樓層標示每層四面（以上均為假設值，依施工計畫調整）。</p>
+ <p style="margin:0;font-size:12px;color:var(--mute)">周邊實景：Google Photorealistic 3D Tiles（需自己的 API 金鑰）。建物：2026709_bh13_模型.3dm。地界、建築線、落物曲線：A04 五合一放樣圖。鷹架：框式施工架，架寬1.2m、跨距1.83m、步距1.7m。三角架懸挑：每段起點設三角托架與斜籬；落地式：斜籬設於3F起每5層。單價為示意值可修改。懸臂式施工架須由專業人員設計、簽章並附計算書，本頁僅供檢討與估算。</p>
  <p><button id="rk">更換 API 金鑰</button></p>
 </aside>
 <div id="meas" class="box"></div>
@@ -71,7 +82,7 @@ input[type=range]{width:100%;accent-color:var(--acc)}
 <script src="key.js"></script>
 <script>
 const META={"anchor": [120.64371281425747, 24.159711276233477], "lines": [{"name": "地界線", "color": "#ffd400", "w": 4, "pts": [[120.64328812, 24.15946705], [120.64369452, 24.15925204], [120.64397416, 24.159703], [120.64412662, 24.15994886], [120.64372021, 24.16016387], [120.64328812, 24.15946705]]}, {"name": "建築線", "color": "#ff3b30", "w": 3, "pts": [[120.64328812, 24.15946705], [120.64372021, 24.16016387]]}, {"name": "4M無遮簷人行道線", "color": "#ffffff", "w": 2, "pts": [[120.64375448, 24.16014616], [120.64332218, 24.15944901]]}, {"name": "10M帶狀開放空間退縮線", "color": "#ffe066", "w": 2, "pts": [[120.6433733, 24.15942199], [120.64380539, 24.16011881]]}, {"name": "24F/25F 落物曲線", "color": "#ff2d55", "w": 3, "pts": [[120.64378304, 24.16008276], [120.644065, 24.15993359], [120.64367761, 24.15930886], [120.64339565, 24.15945803]]}, {"name": "24F/25F 落物曲線", "color": "#ff2d55", "w": 3, "pts": [[120.64378255, 24.16008198], [120.64406366, 24.15993326], [120.64367724, 24.15931009], [120.64339613, 24.15945881]]}], "site": [[120.64328812, 24.15946705], [120.64369452, 24.15925204], [120.64397416, 24.159703], [120.64412662, 24.15994886], [120.64372021, 24.16016387]], "probe": [120.64338876, 24.15984378], "labels": [{"t": "A棟 24F", "p": [120.6436517, 24.15950162], "h": 100}, {"t": "B棟 25F", "p": [120.64388926, 24.15988473], "h": 104}]};
-const SCAF={"labels": [{"t": "B", "k": 1, "txt": "B棟 1F", "e": [1.67, 25.09, 1.6]}, {"t": "B", "k": 1, "txt": "B棟 1F", "e": [31.37, 10.76, 1.6]}, {"t": "B", "k": 1, "txt": "B棟 1F", "e": [31.05, 20.03, 1.6]}, {"t": "B", "k": 1, "txt": "B棟 1F", "e": [28.96, 25.65, 1.6]}, {"t": "B", "k": 2, "txt": "B棟 2F", "e": [1.67, 25.09, 7.6]}, {"t": "B", "k": 2, "txt": "B棟 2F", "e": [31.37, 10.76, 7.6]}, {"t": "B", "k": 2, "txt": "B棟 2F", "e": [31.05, 20.03, 7.6]}, {"t": "B", "k": 2, "txt": "B棟 2F", "e": [28.96, 25.65, 7.6]}, {"t": "B", "k": 3, "txt": "B棟 3F", "e": [1.67, 25.09, 11.8]}, {"t": "B", "k": 3, "txt": "B棟 3F", "e": [31.37, 10.76, 11.8]}, {"t": "B", "k": 3, "txt": "B棟 3F", "e": [31.05, 20.03, 11.8]}, {"t": "B", "k": 3, "txt": "B棟 3F", "e": [28.96, 25.65, 11.8]}, {"t": "B", "k": 4, "txt": "B棟 4F", "e": [1.67, 25.09, 15.2]}, {"t": "B", "k": 4, "txt": "B棟 4F", "e": [31.37, 10.76, 15.2]}, {"t": "B", "k": 4, "txt": "B棟 4F", "e": [31.05, 20.03, 15.2]}, {"t": "B", "k": 4, "txt": "B棟 4F", "e": [28.96, 25.65, 15.2]}, {"t": "B", "k": 5, "txt": "B棟 5F", "e": [1.67, 25.09, 18.6]}, {"t": "B", "k": 5, "txt": "B棟 5F", "e": [31.37, 10.76, 18.6]}, {"t": "B", "k": 5, "txt": "B棟 5F", "e": [31.05, 20.03, 18.6]}, {"t": "B", "k": 5, "txt": "B棟 5F", "e": [28.96, 25.65, 18.6]}, {"t": "B", "k": 6, "txt": "B棟 6F", "e": [1.67, 25.09, 22.0]}, {"t": "B", "k": 6, "txt": "B棟 6F", "e": [31.37, 10.76, 22.0]}, {"t": "B", "k": 6, "txt": "B棟 6F", "e": [31.05, 20.03, 22.0]}, {"t": "B", "k": 6, "txt": "B棟 6F", "e": [28.96, 25.65, 22.0]}, {"t": "B", "k": 7, "txt": "B棟 7F", "e": [1.67, 25.09, 25.4]}, {"t": "B", "k": 7, "txt": "B棟 7F", "e": [31.37, 10.76, 25.4]}, {"t": "B", "k": 7, "txt": "B棟 7F", "e": [31.05, 20.03, 25.4]}, {"t": "B", "k": 7, "txt": "B棟 7F", "e": [28.96, 25.65, 25.4]}, {"t": "B", "k": 8, "txt": "B棟 8F", "e": [1.67, 25.09, 28.8]}, {"t": "B", "k": 8, "txt": "B棟 8F", "e": [31.37, 10.76, 28.8]}, {"t": "B", "k": 8, "txt": "B棟 8F", "e": [31.05, 20.03, 28.8]}, {"t": "B", "k": 8, "txt": "B棟 8F", "e": [28.96, 25.65, 28.8]}, {"t": "B", "k": 9, "txt": "B棟 9F", "e": [1.67, 25.09, 32.2]}, {"t": "B", "k": 9, "txt": "B棟 9F", "e": [31.37, 10.76, 32.2]}, {"t": "B", "k": 9, "txt": "B棟 9F", "e": [31.05, 20.03, 32.2]}, {"t": "B", "k": 9, "txt": "B棟 9F", "e": [28.96, 25.65, 32.2]}, {"t": "B", "k": 10, "txt": "B棟 10F", "e": [1.67, 25.09, 35.6]}, {"t": "B", "k": 10, "txt": "B棟 10F", "e": [31.37, 10.76, 35.6]}, {"t": "B", "k": 10, "txt": "B棟 10F", "e": [31.05, 20.03, 35.6]}, {"t": "B", "k": 10, "txt": "B棟 10F", "e": [28.96, 25.65, 35.6]}, {"t": "B", "k": 11, "txt": "B棟 11F", "e": [1.67, 25.09, 39.0]}, {"t": "B", "k": 11, "txt": "B棟 11F", "e": [31.37, 10.76, 39.0]}, {"t": "B", "k": 11, "txt": "B棟 11F", "e": [31.05, 20.03, 39.0]}, {"t": "B", "k": 11, "txt": "B棟 11F", "e": [28.96, 25.65, 39.0]}, {"t": "B", "k": 12, "txt": "B棟 12F", "e": [1.67, 25.09, 42.4]}, {"t": "B", "k": 12, "txt": "B棟 12F", "e": [31.37, 10.76, 42.4]}, {"t": "B", "k": 12, "txt": "B棟 12F", "e": [31.05, 20.03, 42.4]}, {"t": "B", "k": 12, "txt": "B棟 12F", "e": [28.96, 25.65, 42.4]}, {"t": "B", "k": 13, "txt": "B棟 13F", "e": [1.67, 25.09, 45.8]}, {"t": "B", "k": 13, "txt": "B棟 13F", "e": [31.37, 10.76, 45.8]}, {"t": "B", "k": 13, "txt": "B棟 13F", "e": [31.05, 20.03, 45.8]}, {"t": "B", "k": 13, "txt": "B棟 13F", "e": [28.96, 25.65, 45.8]}, {"t": "B", "k": 14, "txt": "B棟 14F", "e": [1.67, 25.09, 49.2]}, {"t": "B", "k": 14, "txt": "B棟 14F", "e": [31.37, 10.76, 49.2]}, {"t": "B", "k": 14, "txt": "B棟 14F", "e": [31.05, 20.03, 49.2]}, {"t": "B", "k": 14, "txt": "B棟 14F", "e": [28.96, 25.65, 49.2]}, {"t": "B", "k": 15, "txt": "B棟 15F", "e": [1.67, 25.09, 52.6]}, {"t": "B", "k": 15, "txt": "B棟 15F", "e": [31.37, 10.76, 52.6]}, {"t": "B", "k": 15, "txt": "B棟 15F", "e": [31.05, 20.03, 52.6]}, {"t": "B", "k": 15, "txt": "B棟 15F", "e": [28.96, 25.65, 52.6]}, {"t": "B", "k": 16, "txt": "B棟 16F", "e": [1.67, 25.09, 56.0]}, {"t": "B", "k": 16, "txt": "B棟 16F", "e": [31.37, 10.76, 56.0]}, {"t": "B", "k": 16, "txt": "B棟 16F", "e": [31.05, 20.03, 56.0]}, {"t": "B", "k": 16, "txt": "B棟 16F", "e": [28.96, 25.65, 56.0]}, {"t": "B", "k": 17, "txt": "B棟 17F", "e": [1.67, 25.09, 59.4]}, {"t": "B", "k": 17, "txt": "B棟 17F", "e": [31.37, 10.76, 59.4]}, {"t": "B", "k": 17, "txt": "B棟 17F", "e": [31.05, 20.03, 59.4]}, {"t": "B", "k": 17, "txt": "B棟 17F", "e": [28.96, 25.65, 59.4]}, {"t": "B", "k": 18, "txt": "B棟 18F", "e": [1.67, 25.09, 62.8]}, {"t": "B", "k": 18, "txt": "B棟 18F", "e": [31.37, 10.76, 62.8]}, {"t": "B", "k": 18, "txt": "B棟 18F", "e": [31.05, 20.03, 62.8]}, {"t": "B", "k": 18, "txt": "B棟 18F", "e": [28.96, 25.65, 62.8]}, {"t": "B", "k": 19, "txt": "B棟 19F", "e": [1.67, 25.09, 66.2]}, {"t": "B", "k": 19, "txt": "B棟 19F", "e": [31.37, 10.76, 66.2]}, {"t": "B", "k": 19, "txt": "B棟 19F", "e": [31.05, 20.03, 66.2]}, {"t": "B", "k": 19, "txt": "B棟 19F", "e": [28.96, 25.65, 66.2]}, {"t": "B", "k": 20, "txt": "B棟 20F", "e": [1.67, 25.09, 69.6]}, {"t": "B", "k": 20, "txt": "B棟 20F", "e": [31.37, 10.76, 69.6]}, {"t": "B", "k": 20, "txt": "B棟 20F", "e": [31.05, 20.03, 69.6]}, {"t": "B", "k": 20, "txt": "B棟 20F", "e": [28.96, 25.65, 69.6]}, {"t": "B", "k": 21, "txt": "B棟 21F", "e": [1.67, 25.09, 73.0]}, {"t": "B", "k": 21, "txt": "B棟 21F", "e": [31.37, 10.76, 73.0]}, {"t": "B", "k": 21, "txt": "B棟 21F", "e": [31.05, 20.03, 73.0]}, {"t": "B", "k": 21, "txt": "B棟 21F", "e": [28.96, 25.65, 73.0]}, {"t": "B", "k": 22, "txt": "B棟 22F", "e": [1.67, 25.09, 76.4]}, {"t": "B", "k": 22, "txt": "B棟 22F", "e": [31.37, 10.76, 76.4]}, {"t": "B", "k": 22, "txt": "B棟 22F", "e": [31.05, 20.03, 76.4]}, {"t": "B", "k": 22, "txt": "B棟 22F", "e": [28.96, 25.65, 76.4]}, {"t": "B", "k": 23, "txt": "B棟 23F", "e": [1.67, 25.09, 79.8]}, {"t": "B", "k": 23, "txt": "B棟 23F", "e": [31.37, 10.76, 79.8]}, {"t": "B", "k": 23, "txt": "B棟 23F", "e": [31.05, 20.03, 79.8]}, {"t": "B", "k": 23, "txt": "B棟 23F", "e": [28.96, 25.65, 79.8]}, {"t": "B", "k": 24, "txt": "B棟 24F", "e": [1.67, 25.09, 83.2]}, {"t": "B", "k": 24, "txt": "B棟 24F", "e": [31.37, 10.76, 83.2]}, {"t": "B", "k": 24, "txt": "B棟 24F", "e": [31.05, 20.03, 83.2]}, {"t": "B", "k": 24, "txt": "B棟 24F", "e": [28.96, 25.65, 83.2]}, {"t": "B", "k": 25, "txt": "B棟 25F", "e": [1.67, 25.09, 86.6]}, {"t": "B", "k": 25, "txt": "B棟 25F", "e": [31.37, 10.76, 86.6]}, {"t": "B", "k": 25, "txt": "B棟 25F", "e": [31.05, 20.03, 86.6]}, {"t": "B", "k": 25, "txt": "B棟 25F", "e": [28.96, 25.65, 86.6]}, {"t": "B", "k": 26, "txt": "B棟 R1F", "e": [1.67, 25.09, 90.0]}, {"t": "B", "k": 26, "txt": "B棟 R1F", "e": [31.37, 10.76, 90.0]}, {"t": "B", "k": 26, "txt": "B棟 R1F", "e": [31.05, 20.03, 90.0]}, {"t": "B", "k": 26, "txt": "B棟 R1F", "e": [28.96, 25.65, 90.0]}, {"t": "B", "k": 27, "txt": "B棟 R2F", "e": [1.67, 25.09, 93.4]}, {"t": "B", "k": 27, "txt": "B棟 R2F", "e": [31.37, 10.76, 93.4]}, {"t": "B", "k": 27, "txt": "B棟 R2F", "e": [31.05, 20.03, 93.4]}, {"t": "B", "k": 27, "txt": "B棟 R2F", "e": [28.96, 25.65, 93.4]}, {"t": "B", "k": 28, "txt": "B棟 R3F", "e": [1.67, 25.09, 96.8]}, {"t": "B", "k": 28, "txt": "B棟 R3F", "e": [31.37, 10.76, 96.8]}, {"t": "B", "k": 28, "txt": "B棟 R3F", "e": [31.05, 20.03, 96.8]}, {"t": "B", "k": 28, "txt": "B棟 R3F", "e": [28.96, 25.65, 96.8]}, {"t": "B", "k": 29, "txt": "B棟 R4F", "e": [1.67, 25.09, 98.95]}, {"t": "B", "k": 29, "txt": "B棟 R4F", "e": [31.37, 10.76, 98.95]}, {"t": "B", "k": 29, "txt": "B棟 R4F", "e": [31.05, 20.03, 98.95]}, {"t": "B", "k": 29, "txt": "B棟 R4F", "e": [28.96, 25.65, 98.95]}, {"t": "A", "k": 1, "txt": "A棟 1F", "e": [-23.27, -18.99, 1.6]}, {"t": "A", "k": 1, "txt": "A棟 1F", "e": [7.64, -32.21, 1.6]}, {"t": "A", "k": 1, "txt": "A棟 1F", "e": [13.28, -22.23, 1.6]}, {"t": "A", "k": 1, "txt": "A棟 1F", "e": [-1.16, -33.48, 1.6]}, {"t": "A", "k": 2, "txt": "A棟 2F", "e": [-23.27, -18.99, 7.6]}, {"t": "A", "k": 2, "txt": "A棟 2F", "e": [7.64, -32.21, 7.6]}, {"t": "A", "k": 2, "txt": "A棟 2F", "e": [13.28, -22.23, 7.6]}, {"t": "A", "k": 2, "txt": "A棟 2F", "e": [-1.16, -33.48, 7.6]}, {"t": "A", "k": 3, "txt": "A棟 3F", "e": [-23.27, -18.99, 11.8]}, {"t": "A", "k": 3, "txt": "A棟 3F", "e": [7.64, -32.21, 11.8]}, {"t": "A", "k": 3, "txt": "A棟 3F", "e": [13.28, -22.23, 11.8]}, {"t": "A", "k": 3, "txt": "A棟 3F", "e": [-1.16, -33.48, 11.8]}, {"t": "A", "k": 4, "txt": "A棟 4F", "e": [-23.27, -18.99, 15.2]}, {"t": "A", "k": 4, "txt": "A棟 4F", "e": [7.64, -32.21, 15.2]}, {"t": "A", "k": 4, "txt": "A棟 4F", "e": [13.28, -22.23, 15.2]}, {"t": "A", "k": 4, "txt": "A棟 4F", "e": [-1.16, -33.48, 15.2]}, {"t": "A", "k": 5, "txt": "A棟 5F", "e": [-23.27, -18.99, 18.6]}, {"t": "A", "k": 5, "txt": "A棟 5F", "e": [7.64, -32.21, 18.6]}, {"t": "A", "k": 5, "txt": "A棟 5F", "e": [13.28, -22.23, 18.6]}, {"t": "A", "k": 5, "txt": "A棟 5F", "e": [-1.16, -33.48, 18.6]}, {"t": "A", "k": 6, "txt": "A棟 6F", "e": [-23.27, -18.99, 22.0]}, {"t": "A", "k": 6, "txt": "A棟 6F", "e": [7.64, -32.21, 22.0]}, {"t": "A", "k": 6, "txt": "A棟 6F", "e": [13.28, -22.23, 22.0]}, {"t": "A", "k": 6, "txt": "A棟 6F", "e": [-1.16, -33.48, 22.0]}, {"t": "A", "k": 7, "txt": "A棟 7F", "e": [-23.27, -18.99, 25.4]}, {"t": "A", "k": 7, "txt": "A棟 7F", "e": [7.64, -32.21, 25.4]}, {"t": "A", "k": 7, "txt": "A棟 7F", "e": [13.28, -22.23, 25.4]}, {"t": "A", "k": 7, "txt": "A棟 7F", "e": [-1.16, -33.48, 25.4]}, {"t": "A", "k": 8, "txt": "A棟 8F", "e": [-23.27, -18.99, 28.8]}, {"t": "A", "k": 8, "txt": "A棟 8F", "e": [7.64, -32.21, 28.8]}, {"t": "A", "k": 8, "txt": "A棟 8F", "e": [13.28, -22.23, 28.8]}, {"t": "A", "k": 8, "txt": "A棟 8F", "e": [-1.16, -33.48, 28.8]}, {"t": "A", "k": 9, "txt": "A棟 9F", "e": [-23.27, -18.99, 32.2]}, {"t": "A", "k": 9, "txt": "A棟 9F", "e": [7.64, -32.21, 32.2]}, {"t": "A", "k": 9, "txt": "A棟 9F", "e": [13.28, -22.23, 32.2]}, {"t": "A", "k": 9, "txt": "A棟 9F", "e": [-1.16, -33.48, 32.2]}, {"t": "A", "k": 10, "txt": "A棟 10F", "e": [-23.27, -18.99, 35.6]}, {"t": "A", "k": 10, "txt": "A棟 10F", "e": [7.64, -32.21, 35.6]}, {"t": "A", "k": 10, "txt": "A棟 10F", "e": [13.28, -22.23, 35.6]}, {"t": "A", "k": 10, "txt": "A棟 10F", "e": [-1.16, -33.48, 35.6]}, {"t": "A", "k": 11, "txt": "A棟 11F", "e": [-23.27, -18.99, 39.0]}, {"t": "A", "k": 11, "txt": "A棟 11F", "e": [7.64, -32.21, 39.0]}, {"t": "A", "k": 11, "txt": "A棟 11F", "e": [13.28, -22.23, 39.0]}, {"t": "A", "k": 11, "txt": "A棟 11F", "e": [-1.16, -33.48, 39.0]}, {"t": "A", "k": 12, "txt": "A棟 12F", "e": [-23.27, -18.99, 42.4]}, {"t": "A", "k": 12, "txt": "A棟 12F", "e": [7.64, -32.21, 42.4]}, {"t": "A", "k": 12, "txt": "A棟 12F", "e": [13.28, -22.23, 42.4]}, {"t": "A", "k": 12, "txt": "A棟 12F", "e": [-1.16, -33.48, 42.4]}, {"t": "A", "k": 13, "txt": "A棟 13F", "e": [-23.27, -18.99, 45.8]}, {"t": "A", "k": 13, "txt": "A棟 13F", "e": [7.64, -32.21, 45.8]}, {"t": "A", "k": 13, "txt": "A棟 13F", "e": [13.28, -22.23, 45.8]}, {"t": "A", "k": 13, "txt": "A棟 13F", "e": [-1.16, -33.48, 45.8]}, {"t": "A", "k": 14, "txt": "A棟 14F", "e": [-23.27, -18.99, 49.2]}, {"t": "A", "k": 14, "txt": "A棟 14F", "e": [7.64, -32.21, 49.2]}, {"t": "A", "k": 14, "txt": "A棟 14F", "e": [13.28, -22.23, 49.2]}, {"t": "A", "k": 14, "txt": "A棟 14F", "e": [-1.16, -33.48, 49.2]}, {"t": "A", "k": 15, "txt": "A棟 15F", "e": [-23.27, -18.99, 52.6]}, {"t": "A", "k": 15, "txt": "A棟 15F", "e": [7.64, -32.21, 52.6]}, {"t": "A", "k": 15, "txt": "A棟 15F", "e": [13.28, -22.23, 52.6]}, {"t": "A", "k": 15, "txt": "A棟 15F", "e": [-1.16, -33.48, 52.6]}, {"t": "A", "k": 16, "txt": "A棟 16F", "e": [-23.27, -18.99, 56.0]}, {"t": "A", "k": 16, "txt": "A棟 16F", "e": [7.64, -32.21, 56.0]}, {"t": "A", "k": 16, "txt": "A棟 16F", "e": [13.28, -22.23, 56.0]}, {"t": "A", "k": 16, "txt": "A棟 16F", "e": [-1.16, -33.48, 56.0]}, {"t": "A", "k": 17, "txt": "A棟 17F", "e": [-23.27, -18.99, 59.4]}, {"t": "A", "k": 17, "txt": "A棟 17F", "e": [7.64, -32.21, 59.4]}, {"t": "A", "k": 17, "txt": "A棟 17F", "e": [13.28, -22.23, 59.4]}, {"t": "A", "k": 17, "txt": "A棟 17F", "e": [-1.16, -33.48, 59.4]}, {"t": "A", "k": 18, "txt": "A棟 18F", "e": [-23.27, -18.99, 62.8]}, {"t": "A", "k": 18, "txt": "A棟 18F", "e": [7.64, -32.21, 62.8]}, {"t": "A", "k": 18, "txt": "A棟 18F", "e": [13.28, -22.23, 62.8]}, {"t": "A", "k": 18, "txt": "A棟 18F", "e": [-1.16, -33.48, 62.8]}, {"t": "A", "k": 19, "txt": "A棟 19F", "e": [-23.27, -18.99, 66.2]}, {"t": "A", "k": 19, "txt": "A棟 19F", "e": [7.64, -32.21, 66.2]}, {"t": "A", "k": 19, "txt": "A棟 19F", "e": [13.28, -22.23, 66.2]}, {"t": "A", "k": 19, "txt": "A棟 19F", "e": [-1.16, -33.48, 66.2]}, {"t": "A", "k": 20, "txt": "A棟 20F", "e": [-23.27, -18.99, 69.6]}, {"t": "A", "k": 20, "txt": "A棟 20F", "e": [7.64, -32.21, 69.6]}, {"t": "A", "k": 20, "txt": "A棟 20F", "e": [13.28, -22.23, 69.6]}, {"t": "A", "k": 20, "txt": "A棟 20F", "e": [-1.16, -33.48, 69.6]}, {"t": "A", "k": 21, "txt": "A棟 21F", "e": [-23.27, -18.99, 73.0]}, {"t": "A", "k": 21, "txt": "A棟 21F", "e": [7.64, -32.21, 73.0]}, {"t": "A", "k": 21, "txt": "A棟 21F", "e": [13.28, -22.23, 73.0]}, {"t": "A", "k": 21, "txt": "A棟 21F", "e": [-1.16, -33.48, 73.0]}, {"t": "A", "k": 22, "txt": "A棟 22F", "e": [-23.27, -18.99, 76.4]}, {"t": "A", "k": 22, "txt": "A棟 22F", "e": [7.64, -32.21, 76.4]}, {"t": "A", "k": 22, "txt": "A棟 22F", "e": [13.28, -22.23, 76.4]}, {"t": "A", "k": 22, "txt": "A棟 22F", "e": [-1.16, -33.48, 76.4]}, {"t": "A", "k": 23, "txt": "A棟 23F", "e": [-23.27, -18.99, 79.8]}, {"t": "A", "k": 23, "txt": "A棟 23F", "e": [7.64, -32.21, 79.8]}, {"t": "A", "k": 23, "txt": "A棟 23F", "e": [13.28, -22.23, 79.8]}, {"t": "A", "k": 23, "txt": "A棟 23F", "e": [-1.16, -33.48, 79.8]}, {"t": "A", "k": 24, "txt": "A棟 24F", "e": [-23.27, -18.99, 83.2]}, {"t": "A", "k": 24, "txt": "A棟 24F", "e": [7.64, -32.21, 83.2]}, {"t": "A", "k": 24, "txt": "A棟 24F", "e": [13.28, -22.23, 83.2]}, {"t": "A", "k": 24, "txt": "A棟 24F", "e": [-1.16, -33.48, 83.2]}, {"t": "A", "k": 25, "txt": "A棟 R1F", "e": [-23.27, -18.99, 86.6]}, {"t": "A", "k": 25, "txt": "A棟 R1F", "e": [7.64, -32.21, 86.6]}, {"t": "A", "k": 25, "txt": "A棟 R1F", "e": [13.28, -22.23, 86.6]}, {"t": "A", "k": 25, "txt": "A棟 R1F", "e": [-1.16, -33.48, 86.6]}, {"t": "A", "k": 26, "txt": "A棟 R2F", "e": [-23.27, -18.99, 90.0]}, {"t": "A", "k": 26, "txt": "A棟 R2F", "e": [7.64, -32.21, 90.0]}, {"t": "A", "k": 26, "txt": "A棟 R2F", "e": [13.28, -22.23, 90.0]}, {"t": "A", "k": 26, "txt": "A棟 R2F", "e": [-1.16, -33.48, 90.0]}, {"t": "A", "k": 27, "txt": "A棟 R3F", "e": [-23.27, -18.99, 93.4]}, {"t": "A", "k": 27, "txt": "A棟 R3F", "e": [7.64, -32.21, 93.4]}, {"t": "A", "k": 27, "txt": "A棟 R3F", "e": [13.28, -22.23, 93.4]}, {"t": "A", "k": 27, "txt": "A棟 R3F", "e": [-1.16, -33.48, 93.4]}, {"t": "A", "k": 28, "txt": "A棟 R4F", "e": [-23.27, -18.99, 95.45]}, {"t": "A", "k": 28, "txt": "A棟 R4F", "e": [7.64, -32.21, 95.45]}, {"t": "A", "k": 28, "txt": "A棟 R4F", "e": [13.28, -22.23, 95.45]}, {"t": "A", "k": 28, "txt": "A棟 R4F", "e": [-1.16, -33.48, 95.45]}], "floors": {"B": {"max": 29, "names": {"1": "1F", "2": "2F", "3": "3F", "4": "4F", "5": "5F", "6": "6F", "7": "7F", "8": "8F", "9": "9F", "10": "10F", "11": "11F", "12": "12F", "13": "13F", "14": "14F", "15": "15F", "16": "16F", "17": "17F", "18": "18F", "19": "19F", "20": "20F", "21": "21F", "22": "22F", "23": "23F", "24": "24F", "25": "25F", "26": "R1F", "27": "R2F", "28": "R3F", "29": "R4F"}, "skirt": [3, 8, 13, 18, 23]}, "A": {"max": 28, "names": {"1": "1F", "2": "2F", "3": "3F", "4": "4F", "5": "5F", "6": "6F", "7": "7F", "8": "8F", "9": "9F", "10": "10F", "11": "11F", "12": "12F", "13": "13F", "14": "14F", "15": "15F", "16": "16F", "17": "17F", "18": "18F", "19": "19F", "20": "20F", "21": "21F", "22": "22F", "23": "23F", "24": "24F", "25": "R1F", "26": "R2F", "27": "R3F", "28": "R4F"}, "skirt": [3, 8, 13, 18, 23]}}};
+const SCAF={"towers": {"B": {"ring": [[13.923, 39.23], [12.023, 39.73], [10.326, 36.325], [8.569, 35.25], [6.599, 31.769], [6.803, 30.505], [-0.416, 18.963], [0.855, 17.555], [-0.524, 15.118], [-2.553, 13.968], [-1.221, 12.87], [-1.365, 11.802], [2.116, 9.833], [3.502, 10.657], [8.527, 7.355], [9.716, 7.831], [13.545, 5.664], [13.188, 2.19], [15.799, 0.713], [17.208, 1.984], [23.126, -1.365], [23.808, -1.176], [23.748, 1.156], [25.127, 3.593], [25.747, 3.471], [27.763, 7.846], [33.679, 16.678], [25.657, 21.791], [25.688, 23.267], [29.044, 30.215], [28.128, 29.814], [20.35, 34.445], [20.81, 35.563], [18.199, 37.04], [17.897, 38.131], [14.355, 39.79]], "top": 99.3, "topF": 25}, "A": {"ring": [[-9.562, -3.092], [-12.871, -3.863], [-24.939, -24.38], [-24.091, -25.319], [-26.606, -28.952], [-25.274, -30.05], [-25.517, -31.292], [-22.384, -33.064], [-20.18, -32.013], [-17.569, -33.49], [-17.789, -34.285], [-17.221, -33.687], [-15.132, -34.869], [-15.004, -35.861], [-14.436, -35.263], [-9.637, -37.748], [-9.085, -39.209], [-4.851, -29.641], [4.232, -35.369], [14.277, -17.614], [8.049, -14.205], [8.784, -12.093], [5.999, -10.517], [4.445, -12.075], [-0.297, -10.321], [-6.672, -6.106], [-6.316, -5.274]], "top": 95.7, "topF": 24}}};
 {
 let key=window.BH13_KEY||'';if(!key){try{key=localStorage.getItem('bh13_gkey')||''}catch(e){}}
 const dlg=document.getElementById('keyDlg');
@@ -101,7 +112,7 @@ async function start(){
  await new Promise(r=>{let done=false;tileset.initialTilesLoaded.addEventListener(()=>{if(!done){done=true;r()}});setTimeout(()=>{if(!done){done=true;r()}},12000)});
  try{const c=await viewer.scene.sampleHeightMostDetailed([Cesium.Cartographic.fromDegrees(META.probe[0],META.probe[1])]);if(c[0]&&isFinite(c[0].height))baseH=c[0].height}catch(e){}
  const mm=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
- model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=9',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
+ model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=10',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
  viewer.scene.primitives.add(model);
  const ground=viewer.entities.add({polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(site.flat()),height:baseH,material:Cesium.Color.fromCssColorString('#8d9196')}});
  const linePos=l=>Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.flatMap(p=>[p[0],p[1],baseH+dH+0.25]));
@@ -112,28 +123,106 @@ async function start(){
  hs.oninput=upd;upd();
  await new Promise(r=>{if(model.ready)r();else model.readyEvent.addEventListener(r)});
  const show=(n,v)=>{try{const nd=model.getNode(n);if(nd)nd.show=v}catch(e){}};
- const B=['BR 309玫瑰金','橫磚','豎磚','擴張網','暮冬','WINDOW','預設值'];
- document.getElementById('cBld').onchange=e=>B.forEach(n=>show(n,e.target.checked));
- const enuM=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
- const lbls=SCAF.labels.map(L=>({L,ent:viewer.entities.add({position:Cesium.Matrix4.multiplyByPoint(enuM(),new Cesium.Cartesian3(...L.e),new Cesium.Cartesian3()),
-   label:{text:L.txt.split(' ')[1],font:'bold 15px sans-serif',fillColor:Cesium.Color.fromCssColorString('#c8102e'),showBackground:true,backgroundColor:Cesium.Color.WHITE.withAlpha(.92),backgroundPadding:new Cesium.Cartesian2(6,3),
-   scaleByDistance:new Cesium.NearFarScalar(40,1.1,500,0.45),distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0,650)}})}));
- const H={A:SCAF.floors.A.max,B:SCAF.floors.B.max};
+ const BN=['BR 309玫瑰金','橫磚','豎磚','擴張網','暮冬','WINDOW','預設值'];
  const el=id=>document.getElementById(id);
- for(const T of ['A','B']){const r=el('h'+T);r.max=SCAF.floors[T].max;r.value=H[T];}
- const pad=k=>String(k).padStart(2,'0');
- function apply(){
-  const fr=el('cFr').checked,nt=el('cNet').checked,sk=el('cSkt').checked,lb=el('cLbl').checked;
-  for(const T of ['A','B']){const h=+el('h'+T).value;H[T]=h;el('h'+T+'v').textContent=h?SCAF.floors[T].names[h]:'未搭設';
-   for(let k=1;k<=SCAF.floors[T].max;k++){const on=k<=h;show(`FR_${T}_${pad(k)}`,fr&&on);show(`DK_${T}_${pad(k)}`,fr&&on);show(`NT_${T}_${pad(k)}`,nt&&on);show(`SK_${T}_${pad(k)}`,sk&&on)}}
-  for(const o of lbls)o.ent.show=lb&&o.L.k<=H[o.L.t];
+ el('cBld').onchange=e=>BN.forEach(n=>show(n,e.target.checked));
+ const enuM=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
+ // ---------- 鷹架（框式施工架，參照「示範大樓 結構3D」畫法） ----------
+ const SC={mode:'cant',N:6,d:0.30,W:1.2,span:1.83,lift:1.7};
+ const PRICE={area:1050,bracket:1800,hedge:650,net:60,tie:120};
+ const TW=SCAF.towers, TS=['A','B'];
+ const lvl=k=>k===1?0:k===2?6.0:10.2+3.4*(k-3);
+ const fname=(T,k)=>k<=TW[T].topF?k+'F':'R'+(k-TW[T].topF)+'F';
+ const maxK=T=>{let k=1;while(lvl(k+1)<TW[T].top-0.01)k++;return k};
+ const H={};TS.forEach(T=>{H[T]=maxK(T);const r=el('h'+T);r.max=maxK(T);r.value=H[T]});
+ function offsetRing(r,d){const n=r.length,o=[];for(let i=0;i<n;i++){const p0=r[(i-1+n)%n],p1=r[i],p2=r[(i+1)%n];
+   const nr=(a,b)=>{let x=b[0]-a[0],y=b[1]-a[1],L=Math.hypot(x,y)||1;return[y/L,-x/L]};
+   const n1=nr(p0,p1),n2=nr(p1,p2);let mx=n1[0]+n2[0],my=n1[1]+n2[1];const nm=Math.hypot(mx,my);
+   if(nm<1e-6){mx=n1[0];my=n1[1]}else{const dd=Math.max(mx*n1[0]+my*n1[1],0.35);mx/=dd;my/=dd}
+   o.push([p1[0]+mx*d,p1[1]+my*d])}return o}
+ const sidesOf=r=>r.map((p,i)=>{const q=r[(i+1)%r.length];const L=Math.hypot(q[0]-p[0],q[1]-p[1])||1;return[p,q,[(q[1]-p[1])/L,-(q[0]-p[0])/L]]});
+ const perim=r=>r.reduce((m,p,i)=>{const q=r[(i+1)%r.length];return m+Math.hypot(q[0]-p[0],q[1]-p[1])},0);
+ class G{constructor(){this.p=[];this.i=[]}
+  box(a,b,ty,tz){const d=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],L=Math.hypot(...d);if(L<1e-6)return;const u=d.map(x=>x/L);
+   let up=Math.abs(u[2])>0.9?[1,0,0]:[0,0,1];let v=[u[1]*up[2]-u[2]*up[1],u[2]*up[0]-u[0]*up[2],u[0]*up[1]-u[1]*up[0]];let vl=Math.hypot(...v);v=v.map(x=>x/vl*ty/2);
+   let w=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];let wl=Math.hypot(...w);w=w.map(x=>x/wl*tz/2);
+   const k=this.p.length/3;for(const e of[a,b])for(const sv of[-1,1])for(const sw of[-1,1])this.p.push(e[0]+sv*v[0]+sw*w[0],e[1]+sv*v[1]+sw*w[1],e[2]+sv*v[2]+sw*w[2]);
+   const F=[[0,1,3,0,3,2],[4,6,7,4,7,5],[0,4,5,0,5,1],[2,3,7,2,7,6],[0,2,6,0,6,4],[1,5,7,1,7,3]];for(const f of F)for(const x of f)this.i.push(k+x)}
+  quad(a,b,c,d){const k=this.p.length/3;this.p.push(...a,...b,...c,...d);this.i.push(k,k+1,k+2,k,k+2,k+3)}
+  thin(a,b,w){const d=[b[0]-a[0],b[1]-a[1],b[2]-a[2]];const L=Math.hypot(...d)||1;const h=[-d[1]/L*w/2,d[0]/L*w/2,0];// 平面內細條
+   const n=[d[0]/L,d[1]/L,d[2]/L];const z=[0,0,w/2];const s=Math.abs(n[2])>0.5?[w/2,0,0]:z;
+   this.quad([a[0]-s[0],a[1]-s[1],a[2]-s[2]],[b[0]-s[0],b[1]-s[1],b[2]-s[2]],[b[0]+s[0],b[1]+s[1],b[2]+s[2]],[a[0]+s[0],a[1]+s[1],a[2]+s[2]])}}
+ function prim(g,css,alpha){if(!g.i.length)return null;const pos=new Float64Array(g.p);
+  const geo=new Cesium.Geometry({attributes:{position:new Cesium.GeometryAttribute({componentDatatype:Cesium.ComponentDatatype.DOUBLE,componentsPerAttribute:3,values:pos})},
+   indices:new Uint32Array(g.i),primitiveType:Cesium.PrimitiveType.TRIANGLES,boundingSphere:Cesium.BoundingSphere.fromVertices(g.p)});
+  Cesium.GeometryPipeline.computeNormal(geo);
+  return viewer.scene.primitives.add(new Cesium.Primitive({geometryInstances:new Cesium.GeometryInstance({geometry:geo,modelMatrix:enuM(),
+   attributes:{color:Cesium.ColorGeometryInstanceAttribute.fromColor(Cesium.Color.fromCssColorString(css).withAlpha(alpha))}}),
+   appearance:new Cesium.PerInstanceColorAppearance({translucent:alpha<1,closed:false,faceForward:true}),asynchronous:false}))}
+ let prims=[],lbls=[],Q={};
+ function segmentsOf(T){const kTop=H[T];if(!kTop)return[];const top=Math.min(TW[T].top,kTop>=maxK(T)?TW[T].top:lvl(kTop+1)+1.2),segs=[];
+  if(SC.mode==='ground'){segs.push({a:1,z0:0,z1:top,cant:false,lbl:`1F～${fname(T,kTop)}`});return segs}
+  for(let k=1;k<=kTop;k+=SC.N){const e=k+SC.N;const z1=e>kTop?top:lvl(e);segs.push({a:k,z0:lvl(k),z1,cant:k!==1,lbl:`${fname(T,k)}～${e>kTop?fname(T,kTop):fname(T,e)}`})}
+  return segs}
+ function build(){
+  prims.forEach(p=>viewer.scene.primitives.remove(p));prims=[];lbls.forEach(e=>viewer.entities.remove(e));lbls=[];
+  Q={area:0,bracket:0,hedge:0,net:0,tie:0,frames:0,braces:0,planks:0,txt:[]};
+  for(const T of TS){
+   const base=TW[T].ring, rin=offsetRing(base,SC.d), rout=offsetRing(base,SC.d+SC.W), rmid=offsetRing(base,SC.d+SC.W/2);
+   const sIn=sidesOf(rin),sOut=sidesOf(rout),sMid=sidesOf(rmid);
+   const pairs=[];sIn.forEach(([p,q],k)=>{const[po,qo]=sOut[k];const n=Math.max(1,Math.ceil(Math.hypot(qo[0]-po[0],qo[1]-po[1])/SC.span));
+     for(let t=0;t<n;t++){const f=t/n;pairs.push([[p[0]+(q[0]-p[0])*f,p[1]+(q[1]-p[1])*f],[po[0]+(qo[0]-po[0])*f,po[1]+(qo[1]-po[1])*f],k])}});
+   const S=pairs.length,P2=perim(rout),Pc=perim(rmid);
+   const fr=new G(),pl=new G(),br=new G(),hg=new G(),nt=new G();
+   const hedgeAt=z=>sOut.forEach(([p,q,n])=>{const o=1.6,u=1.1,y=z+0.3;hg.quad([p[0],p[1],y],[q[0],q[1],y],[q[0]+n[0]*o,q[1]+n[1]*o,y+u],[p[0]+n[0]*o,p[1]+n[1]*o,y+u])});
+   const segs=segmentsOf(T);
+   for(const sg of segs){const Hh=sg.z1-sg.z0,lifts=Math.max(1,Math.ceil(Hh/SC.lift));
+    pairs.forEach(([a,b])=>{fr.box([a[0],a[1],sg.z0],[a[0],a[1],sg.z1],.05,.05);fr.box([b[0],b[1],sg.z0],[b[0],b[1],sg.z1],.05,.05)});
+    for(let l=0;l<=lifts;l++){const z=Math.min(sg.z0+l*SC.lift,sg.z1);
+     [sIn,sOut].forEach(sd=>sd.forEach(([p,q])=>fr.box([p[0],p[1],z],[q[0],q[1],z],.04,.04)));
+     pairs.forEach(([a,b])=>fr.box([a[0],a[1],z],[b[0],b[1],z],.04,.04));
+     if(l<lifts&&l>0)sMid.forEach(([p,q])=>pl.box([p[0],p[1],z+.03],[q[0],q[1],z+.03],SC.W-.12,.04));
+     if(l<lifts){const z2=Math.min(z+SC.lift,sg.z1);for(let k=0;k<pairs.length;k++){const o1=pairs[k][1],o2=pairs[(k+1)%pairs.length][1];
+       fr.box([o1[0],o1[1],z],[o2[0],o2[1],z2],.025,.025);fr.box([o2[0],o2[1],z],[o1[0],o1[1],z2],.025,.025)}}}
+    if(sg.cant){pairs.forEach(([a,b,k])=>{const n=sIn[k][2];const w=[a[0]-n[0]*SC.d,a[1]-n[1]*SC.d];
+      br.box([w[0],w[1],sg.z0],[b[0],b[1],sg.z0],.08,.08);br.box([b[0],b[1],sg.z0],[w[0],w[1],sg.z0-1.2],.06,.06)});hedgeAt(sg.z0)}
+    sOut.forEach(([p,q,n])=>{const e=.06;nt.quad([p[0]+n[0]*e,p[1]+n[1]*e,sg.z0],[q[0]+n[0]*e,q[1]+n[1]*e,sg.z0],[q[0]+n[0]*e,q[1]+n[1]*e,sg.z1],[p[0]+n[0]*e,p[1]+n[1]*e,sg.z1])});
+    const frames=S*lifts;Q.frames+=frames;Q.braces+=frames*2;Q.planks+=S*lifts*2;Q.tie+=Math.ceil(Pc/5.5)*Math.ceil(Hh/5);
+    if(sg.cant){Q.bracket+=S;Q.hedge+=P2}Q.area+=P2*Hh;Q.net+=P2*Hh;Q.txt.push(`${T}棟 ${sg.lbl}　${sg.cant?'三角架懸挑':'落地'}　高 ${Hh.toFixed(2)} m・${lifts} 步`)}
+   if(SC.mode==='ground'){for(let k=3;k<=H[T];k+=5){hedgeAt(lvl(k));Q.hedge+=P2}}
+   else if(H[T]>=3){hedgeAt(lvl(3));Q.hedge+=P2}
+   const tag=(p,c)=>{if(p)p._k=c;return p};
+   prims.push(tag(prim(fr,'#b9c1c9',1),'fr'),tag(prim(pl,'#d5d9de',1),'fr'),tag(prim(br,'#e23b3b',1),'sk'),tag(prim(hg,'#d94141',.55),'sk'),tag(prim(nt,'#1f5fbf',.32),'nt'));
+   // 樓層標示：每層四面（最長四邊中點，外架外側）
+   const lab=sOut.map(([p,q,n])=>[Math.hypot(q[0]-p[0],q[1]-p[1]),[(p[0]+q[0])/2+n[0]*.3,(p[1]+q[1])/2+n[1]*.3]]).sort((a,b)=>b[0]-a[0]).slice(0,4);
+   const M=enuM();
+   for(let k=1;k<=H[T];k++){const z=lvl(k)+Math.min(1.6,(lvl(k+1)-lvl(k))/2);
+    for(const [,c] of lab)lbls.push(viewer.entities.add({position:Cesium.Matrix4.multiplyByPoint(M,new Cesium.Cartesian3(c[0],c[1],z),new Cesium.Cartesian3()),
+     label:{text:fname(T,k),font:'bold 15px sans-serif',fillColor:Cesium.Color.fromCssColorString('#c8102e'),showBackground:true,backgroundColor:Cesium.Color.WHITE.withAlpha(.92),
+      backgroundPadding:new Cesium.Cartesian2(6,3),scaleByDistance:new Cesium.NearFarScalar(40,1.1,500,.45),distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0,650)}}))}
+  }
+  vis();panelQty();
  }
- ['cFr','cNet','cSkt','cLbl','hA','hB'].forEach(id=>el(id).addEventListener('input',apply));
- el('hAll').onclick=()=>{el('hA').value=el('hA').max;el('hB').value=el('hB').max;apply()};
- el('hNone').onclick=()=>{el('hA').value=0;el('hB').value=0;apply()};
- apply();
- const relabel=()=>{const M=enuM();for(const o of lbls)o.ent.position=Cesium.Matrix4.multiplyByPoint(M,new Cesium.Cartesian3(...o.L.e),new Cesium.Cartesian3())};
- hs.addEventListener('input',relabel);
+ function vis(){const m={fr:el('cFr').checked,nt:el('cNet').checked,sk:el('cSkt').checked};prims.forEach(p=>{if(p)p.show=m[p._k]});const lb=el('cLbl').checked;lbls.forEach(e=>e.show=lb)}
+ const nf=(x,d=0)=>x.toLocaleString('zh-TW',{minimumFractionDigits:d,maximumFractionDigits:d});
+ function panelQty(){TS.forEach(T=>el('h'+T+'v').textContent=H[T]?fname(T,H[T]):'未搭設');
+  el('segList').innerHTML=Q.txt.join('<br>');
+  const rows=[['施工架面積（外立面）','m²',Q.area,'area'],['三角托架','組',Q.bracket,'bracket'],['斜籬','m',Q.hedge,'hedge'],['防塵網','m²',Q.net,'net'],['壁連座（繫牆）','處',Q.tie,'tie'],['框架','組',Q.frames,null],['交叉拉桿','支',Q.braces,null],['踏板','片',Q.planks,null]];
+  let sum=0;el('scafTbl').innerHTML='<tr><th>項目</th><th>數量</th><th>單價</th><th>複價</th></tr>'+rows.map(([n,u,v,k])=>{const amt=k?Math.round(v*PRICE[k]):null;if(amt)sum+=amt;
+   return `<tr><td>${n}</td><td>${nf(v,u==='m²'||u==='m'?1:0)} ${u}</td><td>${k?`<input class="price" data-k="${k}" inputmode="numeric" value="${PRICE[k]}">`:'含於面積'}</td><td>${amt!=null?nf(amt):'—'}</td></tr>`}).join('');
+  el('scafSum').textContent='$'+nf(sum)}
+ el('scafTbl').addEventListener('change',e=>{const k=e.target.dataset.k;if(!k)return;const v=parseFloat(e.target.value);if(isFinite(v)&&v>=0)PRICE[k]=v;panelQty()});
+ const segBind=(id,fn)=>el(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;el(id).querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));fn(b.dataset.v)});
+ segBind('sMode',v=>{SC.mode=v;el('segRow').style.opacity=v==='ground'?.4:1;build()});
+ segBind('sN',v=>{SC.N=+v;build()});
+ let tmr=null;const later=()=>{clearTimeout(tmr);tmr=setTimeout(build,150)};
+ el('sD').addEventListener('input',e=>{SC.d=+e.target.value/100;el('sDv').textContent=e.target.value+' cm';later()});
+ TS.forEach(T=>el('h'+T).addEventListener('input',e=>{H[T]=+e.target.value;el('h'+T+'v').textContent=H[T]?fname(T,H[T]):'未搭設';later()}));
+ el('hAll').onclick=()=>{TS.forEach(T=>{H[T]=maxK(T);el('h'+T).value=H[T]});build()};
+ el('hNone').onclick=()=>{TS.forEach(T=>{H[T]=0;el('h'+T).value=0});build()};
+ ['cFr','cNet','cSkt','cLbl'].forEach(id=>el(id).addEventListener('change',vis));
+ build();
+ hs.addEventListener('input',later);
  document.getElementById('cLin').onchange=e=>lines.forEach(l=>l.show=e.target.checked);
  document.getElementById('cClip').onchange=e=>{clip.enabled=e.target.checked;ground.show=e.target.checked};
  document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>look(...V[b.dataset.v]));
