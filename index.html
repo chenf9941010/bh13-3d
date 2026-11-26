@@ -32,6 +32,21 @@ input[type=range]{width:100%;accent-color:var(--acc)}
 .cesium-viewer-bottom{z-index:4}
 .seg{display:inline-flex;gap:0}.seg button{margin:0;border-radius:0}.seg button:first-child{border-radius:9px 0 0 9px}.seg button:last-child{border-radius:0 9px 9px 0}
 .tbl{width:100%;border-collapse:collapse;font-size:12.5px}.tbl th,.tbl td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}.tbl th:first-child,.tbl td:first-child{text-align:left}
+#camBtn{position:fixed;left:10px;top:78px;z-index:6;background:var(--acc);border-color:var(--acc);font-weight:600}
+#camFrame{position:fixed;display:none;pointer-events:none;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.45);z-index:4;
+ background-image:linear-gradient(to right,transparent calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% + .5px),transparent calc(33.33% + .5px),transparent calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% + .5px),transparent calc(66.66% + .5px)),
+ linear-gradient(to bottom,transparent calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% + .5px),transparent calc(33.33% + .5px),transparent calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% + .5px),transparent calc(66.66% + .5px))}
+#camBar{left:50%;transform:translateX(-50%);bottom:10px;display:none;width:min(720px,calc(100% - 16px));font-size:13px}
+#camBar .row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:2px 0}
+#camBar select{font:inherit;font-size:14px;min-height:36px;border-radius:9px;background:#11151a;color:var(--ink);border:1px solid var(--line);max-width:150px}
+#camShot{background:var(--acc);border-color:var(--acc);font-weight:700;min-width:96px}
+body.cam #panel,body.cam #top,body.cam #meas,body.cam #camBtn,body.cam .cesium-viewer-bottom{display:none!important}
+body.cam #camBar,body.cam #camFrame{display:block}
+#camPrev[hidden]{display:none!important}
+#camPrev{position:fixed;inset:0;z-index:12;background:rgba(0,0,0,.82);display:grid;place-items:center;padding:12px}
+#camPrev .box{position:static;max-width:min(960px,100%);text-align:center}
+#camPrev img{max-width:100%;max-height:70vh;display:block;margin:0 auto 8px;border-radius:6px}
+@media(max-width:700px){#camBtn{left:auto;right:10px;top:10px}}
 .price{width:64px;padding:2px 4px;border:1px solid var(--line);border-radius:6px;background:#11151a;color:var(--ink);text-align:right;font-size:12px}
 </style>
 </head>
@@ -94,6 +109,21 @@ input[type=range]{width:100%;accent-color:var(--acc)}
  <p><button id="rk">更換 API 金鑰</button></p>
 </aside>
 <div id="meas" class="box"></div>
+<button id="camBtn">📷 相機</button>
+<div id="camFrame"></div>
+<div id="camBar" class="box">
+ <div class="row">比例 <span class="seg" id="camAr"><button data-a="1.7778" class="on">16:9</button><button data-a="1.3333">4:3</button><button data-a="1">1:1</button><button data-a="0.75">直式3:4</button><button data-a="0">全畫面</button></span></div>
+ <div class="row">畫質 <span class="seg" id="camRes"><button data-r="1920">FHD 1920</button><button data-r="2560">2K 2560</button><button data-r="3840" class="on">4K 3840</button></span></div>
+ <div class="row" style="flex-wrap:nowrap">視野 <input type="range" id="camFov" min="20" max="100" step="1" value="60" style="flex:1"> <b id="camFovV">60°</b></div>
+ <div class="row"><label class="l"><input type="checkbox" id="camLbl" checked>文字標籤</label><label class="l"><input type="checkbox" id="camWm" checked>浮水印（案名／進度／日期）</label></div>
+ <div class="row"><select id="camViews"></select><button id="camSave">存目前視角</button><button id="camDel">刪除</button></div>
+ <div class="row"><button id="camShot">📸 拍照</button><button id="camExit">退出相機</button><span id="camSt" style="color:var(--mute)"></span></div>
+</div>
+<div id="camPrev" hidden><div class="box">
+ <img id="camImg" alt="拍攝結果">
+ <div id="camInfo" style="font-size:13px;color:var(--mute);margin-bottom:6px"></div>
+ <button id="camDl" class="on">💾 儲存／分享</button><button id="camClose">關閉</button>
+</div></div>
 <div id="keyDlg" hidden><div class="box">
  <b>輸入 Google Maps API 金鑰</b>
  <ol><li>到 console.cloud.google.com 建立專案並綁定帳單</li><li>啟用「Map Tiles API」</li><li>憑證 → 建立 API 金鑰，貼到下面</li></ol>
@@ -137,7 +167,7 @@ async function start(){
  await new Promise(r=>{let done=false;tileset.initialTilesLoaded.addEventListener(()=>{if(!done){done=true;r()}});setTimeout(()=>{if(!done){done=true;r()}},12000)});
  try{const c=await viewer.scene.sampleHeightMostDetailed([Cesium.Cartographic.fromDegrees(META.probe[0],META.probe[1])]);if(c[0]&&isFinite(c[0].height))baseH=c[0].height}catch(e){}
  const mm=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
- model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=16',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
+ model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=17',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
  viewer.scene.primitives.add(model);
  const ground=viewer.entities.add({polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(siteLL().flat()),height:baseH,material:Cesium.Color.fromCssColorString('#8d9196')}});
  const linePos=l=>Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.map(sh).flatMap(p=>[p[0],p[1],baseH+dH+0.25]));
@@ -378,6 +408,63 @@ async function start(){
   const g=new Cesium.EllipsoidGeodesic(ca,cb).surfaceDistance,dz=Math.abs(ca.height-cb.height),d3=Cesium.Cartesian3.distance(a,b);
   box.innerHTML=`<b>${g.toFixed(2)} m</b> 水平距離<br><span style="font-size:13px;color:#9aa4ae">斜距 ${d3.toFixed(2)} m・高差 ${dz.toFixed(2)} m</span>`;
  },Cesium.ScreenSpaceEventType.LEFT_CLICK);
+ // ---------- 相機：取景框＋高解析截圖（提高渲染倍率、MSAA/FXAA、等待實景圖磚載入後超取樣縮圖） ----------
+ const CAM={ar:16/9,res:3840,blob:null,name:''};
+ const frameEl=el('camFrame'),bar=el('camBar'),st=t=>el('camSt').textContent=t;
+ function frameRect(){const W=innerWidth,H=innerHeight,m=10,bh=bar.offsetHeight+20,aw=W-2*m,ah=H-bh-2*m;
+  if(!CAM.ar)return{x:0,y:0,w:W,h:H};let w=aw,h=w/CAM.ar;if(h>ah){h=ah;w=h*CAM.ar}return{x:(W-w)/2,y:m+(ah-h)/2,w,h}}
+ function placeFrame(){const r=frameRect();Object.assign(frameEl.style,{left:r.x+'px',top:r.y+'px',width:r.w+'px',height:r.h+'px'})}
+ addEventListener('resize',()=>{if(document.body.classList.contains('cam'))placeFrame()});
+ el('camBtn').onclick=()=>{document.body.classList.add('cam');on&&mb.onclick();placeFrame();st('拖曳畫面調整角度，框內即為成品')};
+ el('camExit').onclick=()=>document.body.classList.remove('cam');
+ el('camAr').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;el('camAr').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));CAM.ar=+b.dataset.a;placeFrame()});
+ el('camRes').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;el('camRes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));CAM.res=+b.dataset.r});
+ const fovI=el('camFov');fovI.oninput=()=>{viewer.camera.frustum.fov=+fovI.value*Math.PI/180;el('camFovV').textContent=fovI.value+'°'};
+ // 視角存檔（存在這台裝置）
+ const VK='bh13_views';let views=[];try{views=JSON.parse(localStorage.getItem(VK)||'[]')}catch(e){}
+ const fillViews=()=>{el('camViews').innerHTML='<option value="">已存視角（'+views.length+'）</option>'+views.map((v,i)=>`<option value="${i}">${v.n}</option>`).join('')};fillViews();
+ const keepViews=()=>{try{localStorage.setItem(VK,JSON.stringify(views))}catch(e){}fillViews()};
+ el('camSave').onclick=()=>{const c=viewer.camera,n=prompt('視角名稱',`視角${views.length+1}`);if(n===null)return;
+  views.push({n:n||`視角${views.length+1}`,p:[c.positionWC.x,c.positionWC.y,c.positionWC.z],h:c.heading,pi:c.pitch,r:c.roll,f:+fovI.value});keepViews();el('camViews').value=views.length-1;st('已存「'+views[views.length-1].n+'」')};
+ el('camViews').onchange=e=>{const v=views[+e.target.value];if(!v)return;fovI.value=v.f||60;fovI.oninput();
+  viewer.camera.flyTo({destination:new Cesium.Cartesian3(...v.p),orientation:{heading:v.h,pitch:v.pi,roll:v.r},duration:1})};
+ el('camDel').onclick=()=>{const i=el('camViews').value;if(i==='')return;if(!confirm('刪除「'+views[+i].n+'」？'))return;views.splice(+i,1);keepViews()};
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms)),frames=n=>new Promise(r=>{let k=0;const f=()=>{++k>=n?r():requestAnimationFrame(f)};requestAnimationFrame(f)});
+ const stamp=()=>{const d=new Date(),z=x=>String(x).padStart(2,'0');return{f:`${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}`,t:`${d.getFullYear()}/${z(d.getMonth()+1)}/${z(d.getDate())}`}};
+ let busy=false;
+ el('camShot').onclick=async()=>{if(busy)return;busy=true;el('camShot').disabled=true;
+  const r=frameRect(),sc0=viewer.scene,gl=sc0.context._gl,dpr=devicePixelRatio||1,mobile=matchMedia('(max-width:700px)').matches||/Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
+  let ow,oh;if(r.w>=r.h){ow=CAM.res;oh=Math.round(CAM.res*r.h/r.w)}else{oh=CAM.res;ow=Math.round(CAM.res*r.w/r.h)}
+  const maxD=Math.min(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0],mobile?4096:8192);
+  let sc=ow*1.3/(r.w*dpr);sc=Math.max(.5,Math.min(sc,maxD/(innerWidth*dpr),maxD/(innerHeight*dpr)));
+  const old={rs:viewer.resolutionScale,ubr:viewer.useBrowserRecommendedResolution,mse:tileset.maximumScreenSpaceError,fx:sc0.postProcessStages.fxaa.enabled,ms:sc0.msaaSamples};
+  const hid=[];if(!el('camLbl').checked)viewer.entities.values.forEach(e=>{if(e.label&&e.show){hid.push(e);e.show=false}});
+  try{
+   viewer.useBrowserRecommendedResolution=false;viewer.resolutionScale=sc;if(old.mse!==undefined)tileset.maximumScreenSpaceError=Math.min(old.mse,6);
+   sc0.postProcessStages.fxaa.enabled=true;if(sc0.msaaSupported)sc0.msaaSamples=4;
+   await frames(4);const t0=Date.now();
+   while(tileset.tilesLoaded===false&&Date.now()-t0<30000){st(`載入高解析實景… ${Math.round((Date.now()-t0)/1000)} 秒`);await sleep(300)}
+   st('輸出中…');await frames(3);
+   const c=sc0.canvas,k=c.width/c.clientWidth;
+   ow=Math.min(ow,Math.round(r.w*k));oh=Math.min(oh,Math.round(r.h*k));
+   const out=document.createElement('canvas');out.width=ow;out.height=oh;const x=out.getContext('2d');x.imageSmoothingEnabled=true;x.imageSmoothingQuality='high';
+   await new Promise(res=>{const rm=sc0.postRender.addEventListener(()=>{rm();x.drawImage(c,r.x*k,r.y*k,r.w*k,r.h*k,0,0,ow,oh);res()});sc0.requestRender()});
+   // 浮水印與實景出處
+   const fs=Math.max(14,Math.round(Math.min(ow,oh*1.78)*.016)),S=stamp();x.textBaseline='middle';
+   if(el('camWm').checked){const tx=`BH13 惠國段52地號｜A棟 結構 ${bLbl('A')}・B棟 結構 ${bLbl('B')}｜${S.t}`;x.font=`600 ${fs}px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif`;
+    const tw=x.measureText(tx).width;x.fillStyle='rgba(16,20,26,.62)';x.fillRect(0,oh-fs*2.2,tw+fs*2,fs*2.2);x.fillStyle='#fff';x.fillText(tx,fs,oh-fs*1.1)}
+   x.font=`${Math.round(fs*.75)}px sans-serif`;const gt='實景 © Google';const gw=x.measureText(gt).width;x.fillStyle='rgba(16,20,26,.55)';x.fillRect(ow-gw-fs*1.2,oh-fs*1.6,gw+fs*1.2,fs*1.6);x.fillStyle='#fff';x.fillText(gt,ow-gw-fs*.6,oh-fs*.8);
+   CAM.name=`BH13_${S.f}_${ow}x${oh}.png`;
+   CAM.blob=await new Promise(res=>out.toBlob(res,'image/png'));
+   el('camImg').src=URL.createObjectURL(CAM.blob);el('camInfo').textContent=`${ow} × ${oh} px・PNG・${(CAM.blob.size/1048576).toFixed(1)} MB`+((r.w>=r.h?ow:oh)<CAM.res?'（已達此裝置繪圖上限）':'');
+   el('camPrev').hidden=false;st('')
+  }catch(e){st('拍照失敗：'+e.message)}
+  finally{viewer.resolutionScale=old.rs;viewer.useBrowserRecommendedResolution=old.ubr;if(old.mse!==undefined)tileset.maximumScreenSpaceError=old.mse;sc0.postProcessStages.fxaa.enabled=old.fx;sc0.msaaSamples=old.ms;
+   hid.forEach(e=>e.show=true);busy=false;el('camShot').disabled=false}};
+ el('camClose').onclick=()=>{el('camPrev').hidden=true;URL.revokeObjectURL(el('camImg').src)};
+ el('camDl').onclick=async()=>{if(!CAM.blob)return;const f=new File([CAM.blob],CAM.name,{type:'image/png'});
+  if(navigator.canShare&&navigator.canShare({files:[f]})&&matchMedia('(pointer:coarse)').matches){try{await navigator.share({files:[f],title:CAM.name});return}catch(e){if(e.name==='AbortError')return}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(CAM.blob);a.download=CAM.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000)};
 }
 }
 </script>
