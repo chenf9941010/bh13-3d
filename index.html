@@ -59,6 +59,15 @@ input[type=range]{width:100%;accent-color:var(--acc)}
  <input type="range" id="bB" min="0" step="1">
  <div><button id="bAll">全部完成</button><button id="bNone">全部清除</button></div>
  <label class="l"><input type="checkbox" id="cSync">鷹架跟隨結構（高出作業樓版約1.2m）</label>
+ <h2>塔吊・施工電梯（簡報 1.10）</h2>
+ <label class="l"><input type="checkbox" id="cCr" checked>塔吊 JTL120F8（45M 動臂式）</label>
+ <label class="l"><input type="checkbox" id="cRad" checked>作業半徑圈（3.5～45 m）</label>
+ <label class="l"><input type="checkbox" id="cEl" checked>施工電梯（外爬 SC200-45／內爬 SC150-65）</label>
+ <div style="font-size:14px">吊臂方向 <b id="crHv"></b></div>
+ <input type="range" id="crH" min="0" max="359" step="1" value="215">
+ <div style="font-size:14px">作業半徑 <b id="crRv"></b></div>
+ <input type="range" id="crR" min="3.5" max="45" step="0.5" value="45">
+ <div id="crTxt" style="font-size:12px;color:var(--mute)"></div>
  <h2>鷹架設定</h2>
  <div class="seg" id="sMode"><button data-v="plan" class="on">依規劃圖</button><button data-v="ground">落地</button><button data-v="cant">懸挑每N層</button></div>
  <div id="segRow" style="margin-top:6px;opacity:.4">每段 <span class="seg" id="sN"><button data-v="5">5</button><button data-v="6" class="on">6</button><button data-v="7">7</button></span> 層</div>
@@ -128,7 +137,7 @@ async function start(){
  await new Promise(r=>{let done=false;tileset.initialTilesLoaded.addEventListener(()=>{if(!done){done=true;r()}});setTimeout(()=>{if(!done){done=true;r()}},12000)});
  try{const c=await viewer.scene.sampleHeightMostDetailed([Cesium.Cartographic.fromDegrees(META.probe[0],META.probe[1])]);if(c[0]&&isFinite(c[0].height))baseH=c[0].height}catch(e){}
  const mm=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
- model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=14',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
+ model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=16',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
  viewer.scene.primitives.add(model);
  const ground=viewer.entities.add({polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(siteLL().flat()),height:baseH,material:Cesium.Color.fromCssColorString('#8d9196')}});
  const linePos=l=>Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.map(sh).flatMap(p=>[p[0],p[1],baseH+dH+0.25]));
@@ -154,7 +163,7 @@ async function start(){
  const BH={};TS.forEach(T=>{BH[T]=maxK(T);const r=el('b'+T);r.max=maxK(T);r.value=BH[T]});
  const bldNodes=[];['A','B','C'].forEach(T=>{for(let k=1;k<=40;k++)BN.forEach(n=>{let nd=null;try{nd=model.getNode(T+'|'+k+'|'+n)}catch(e){}if(nd)bldNodes.push({T,k,nd})})});
  const bLbl=T=>BH[T]?fname(T,BH[T])+(BH[T]>=maxK(T)?'（全部）':' 樓版'):'未施工';
- function bldVis(){const on=el('cBld').checked,mx=Math.max(BH.A,BH.B);bldNodes.forEach(o=>o.nd.show=on&&o.k<=(o.T==='C'?mx:BH[o.T]));TS.forEach(T=>el('b'+T+'v').textContent=bLbl(T))}
+ function bldVis(){const on=el('cBld').checked,mx=Math.max(BH.A,BH.B);bldNodes.forEach(o=>o.nd.show=on&&o.k<=(o.T==='C'?mx:BH[o.T]));if(SC.eqReady)equip();TS.forEach(T=>el('b'+T+'v').textContent=bLbl(T))}
  const syncScaf=()=>{if(!el('cSync').checked)return false;TS.forEach(T=>{H[T]=BH[T]>=maxK(T)?maxK(T):Math.max(0,BH[T]-1);el('h'+T).value=H[T]});return true};
  TS.forEach(T=>el('b'+T).addEventListener('input',e=>{BH[T]=+e.target.value;bldVis();if(syncScaf())later()}));
  el('bAll').onclick=()=>{TS.forEach(T=>{BH[T]=maxK(T);el('b'+T).value=BH[T]});bldVis();if(syncScaf())build()};
@@ -250,9 +259,74 @@ async function start(){
      const a=[cx-tx*h,cy-ty*h],b=[cx+tx*h,cy+ty*h];(PAN[t]=PAN[t]||[]).push([[a[0],a[1],z0],[b[0],b[1],z0],[b[0],b[1],z1],[a[0],a[1],z1]])}}
   }
   for(const t in PAN)prims.push(panelPrim(t,PAN[t]));
-  vis();panelQty();
+  vis();panelQty();equip();
  }
- function vis(){const m={fr:el('cFr').checked,nt:el('cNet').checked,sk:el('cSkt').checked,lb:el('cLbl').checked};prims.forEach(p=>{if(p)p.show=m[p._k]});const lb=el('cLbl').checked;lbls.forEach(e=>e.show=lb)}
+ // ---------- 塔吊・施工電梯（位置依簡報 p.23～25 平面圖換算；s=沿惠中路距地界角、d=垂直惠中路往內） ----------
+ const s0L=[(META.site[0][0]-A0[0])*KX,(META.site[0][1]-A0[1])*KY],s4L=[(META.site[4][0]-A0[0])*KX,(META.site[4][1]-A0[1])*KY];
+ const RL=Math.hypot(s4L[0]-s0L[0],s4L[1]-s0L[1]),U=[(s4L[0]-s0L[0])/RL,(s4L[1]-s0L[1])/RL],NV=[U[1],-U[0]];
+ const SD=(sv,dv)=>[s0L[0]+sv*U[0]+dv*NV[0],s0L[1]+sv*U[1]+dv*NV[1]];
+ const CR={p:SD(51.8,21.5),mast:1.8,jib:45,tip0:41.8,clr:14.6,tieZ:lvl(3)+1.7};
+ const ELV=[
+  {nm:'A棟 外爬式 SC200-45',T:'A',top:24,car:[3.0,1.4,2.0],c:SD(38.9,31),mo:[-0.95,1.05],ext:true},
+  {nm:'B棟 外爬式 SC200-45',T:'B',top:24,car:[3.0,1.4,2.0],c:SD(53.9,31),mo:[0.95,1.05],ext:true},
+  {nm:'A棟 內爬式 SC150-65',T:'A',car:[1.4,1.8,2.5],c:SD(17.7,32),mo:[0,1.25],ext:false},
+  {nm:'B棟 內爬式 SC150-65',T:'B',car:[1.4,1.8,2.5],c:SD(73.9,32),mo:[0,1.25],ext:false}];
+ const LOAD=[[3.5,4],[27.3,4],[30,3.53],[32,3.25],[35,2.91],[37,2.73],[40,2.5],[42,2.37],[45,2.2]];
+ const loadAt=R=>{for(let i=1;i<LOAD.length;i++)if(R<=LOAD[i][0]){const[a,b]=[LOAD[i-1],LOAD[i]];return a[1]+(b[1]-a[1])*(R-a[0])/(b[0]-a[0])}return 2.2};
+ let eqPrims=[],eqEnts=[];SC.eqReady=true;
+ function mastL(g,c,w,z0,z1,ang){const co=Math.cos(ang),si=Math.sin(ang),h=w/2;const P=[[-h,-h],[h,-h],[h,h],[-h,h]].map(([a,b])=>[c[0]+a*co-b*si,c[1]+a*si+b*co]);
+  P.forEach(q=>g.box([q[0],q[1],z0],[q[0],q[1],z1],.14,.14));
+  for(let z=z0;z<z1-1e-3;z+=w){const z2=Math.min(z+w,z1);for(let i=0;i<4;i++){const a=P[i],b=P[(i+1)%4];g.box([a[0],a[1],z],[b[0],b[1],z],.08,.08);g.box([a[0],a[1],z],[b[0],b[1],z2],.06,.06)}}
+  for(let i=0;i<4;i++){const a=P[i],b=P[(i+1)%4];g.box([a[0],a[1],z1],[b[0],b[1],z1],.08,.08)}}
+ function beamL(g,a,b,w,hh){const d=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],L=Math.hypot(...d),hz=Math.hypot(d[0],d[1])||1;const pv=[-d[1]/hz*w/2,d[0]/hz*w/2,0];
+  let up=[-d[0]*d[2]/L/L,-d[1]*d[2]/L/L,1-(d[2]/L)**2];const ul=Math.hypot(...up)||1;up=up.map(x=>x/ul*hh);
+  const C=e=>[[e[0]+pv[0],e[1]+pv[1],e[2]],[e[0]-pv[0],e[1]-pv[1],e[2]],[e[0]+up[0],e[1]+up[1],e[2]+up[2]]];
+  const A=C(a),B=C(b);for(let i=0;i<3;i++)g.box(A[i],B[i],.1,.1);
+  const n=Math.max(1,Math.ceil(L/1.8));for(let k=0;k<n;k++){const f=k/n,f2=(k+1)/n,P=(i,t)=>[A[i][0]+(B[i][0]-A[i][0])*t,A[i][1]+(B[i][1]-A[i][1])*t,A[i][2]+(B[i][2]-A[i][2])*t];
+   g.box(P(0,f),P(1,f),.05,.05);g.box(P(0,f),P(2,f2),.05,.05);g.box(P(1,f),P(2,f2),.05,.05);g.box(P(0,f),P(1,f2),.04,.04)}}
+ function equip(){
+  eqPrims.forEach(p=>viewer.scene.primitives.remove(p));eqPrims=[];eqEnts.forEach(e=>viewer.entities.remove(e));eqEnts=[];
+  const M=enuM(),W=(x,y,z)=>Cesium.Matrix4.multiplyByPoint(M,new Cesium.Cartesian3(x,y,z),new Cesium.Cartesian3());
+  const slab=T=>BH[T]?lvl(Math.min(BH[T],maxK(T))):0, top=Math.max(slab('A'),slab('B'));
+  const lab=(p,t,col,key)=>{const e=viewer.entities.add({position:p,label:{text:t,font:'bold 13px sans-serif',fillColor:Cesium.Color.WHITE,showBackground:true,backgroundColor:Cesium.Color.fromCssColorString(col).withAlpha(.85),
+    backgroundPadding:new Cesium.Cartesian2(5,3),disableDepthTestDistance:1e9,scaleByDistance:new Cesium.NearFarScalar(60,1,600,.55),distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0,900)}});e._k=key;eqEnts.push(e)};
+  // 塔吊：塔尖 = max(安裝 GL+41.8, 最高樓版 + 14.6)；14.6 = 41.8 − 8F 樓版(27.2)，即「8樓板後使用」時的淨空
+  const ang0=Math.atan2(U[1],U[0]),tip=Math.max(CR.tip0,top+CR.clr),slew=tip-7,piv=slew+1.5;
+  const hd=+el('crH').value*Math.PI/180,R=+el('crR').value,dir=[Math.sin(hd),Math.cos(hd)],th=Math.acos(Math.min(1,R/CR.jib));
+  const y=new G(),k=new G(),cw=new G(),hk=new G(),c=CR.p;
+  mastL(y,c,CR.mast,0,slew,ang0);
+  y.box([c[0],c[1],slew],[c[0],c[1],slew+1.2],2.6,2.6);
+  const pv=[c[0]+dir[0]*1.2,c[1]+dir[1]*1.2,piv],jt=[pv[0]+dir[0]*R,pv[1]+dir[1]*R,piv+CR.jib*Math.sin(th)];
+  beamL(y,pv,jt,1.2,1.1);
+  const bk=[c[0]-dir[0]*11,c[1]-dir[1]*11,slew+1.0];beamL(y,[c[0]-dir[0]*1.2,c[1]-dir[1]*1.2,slew+1.0],bk,1.8,.9);
+  cw.box([bk[0]-dir[0]*1.5,bk[1]-dir[1]*1.5,slew+.2],[bk[0]+dir[0]*1.5,bk[1]+dir[1]*1.5,slew+.2],2.4,2.2);
+  const ap=[c[0],c[1],tip];y.box([c[0]-dir[0]*1.0,c[1]-dir[1]*1.0,slew+1.2],ap,.18,.18);y.box([c[0]+dir[0]*1.0,c[1]+dir[1]*1.0,slew+1.2],ap,.18,.18);
+  k.box(ap,[jt[0],jt[1],jt[2]+.6],.03,.03);k.box(ap,bk,.03,.03);
+  cw.box([c[0]+dir[0]*.2-dir[1]*1.4,c[1]+dir[1]*.2+dir[0]*1.4,slew+1.3],[c[0]+dir[0]*1.6-dir[1]*1.4,c[1]+dir[1]*1.6+dir[0]*1.4,slew+1.3],1.4,2.0);
+  const hz=Math.max(top+3,3);hk.box(jt,[jt[0],jt[1],hz],.04,.04);hk.box([jt[0],jt[1],hz+.3],[jt[0],jt[1],hz-.5],.5,.5);
+  if(BH.B>=4){const tB=SD(55.2,21.5);[-1,1].forEach(sg=>{const q=[c[0]+U[0]*sg*.9,c[1]+U[1]*sg*.9];y.box([q[0],q[1],CR.tieZ],[tB[0]+U[0]*sg*1.5,tB[1]+U[1]*sg*1.5,CR.tieZ],.2,.2)})}
+  const P=(g,col,a,key)=>{const pr=prim(g,col,a);if(pr){pr._k=key;eqPrims.push(pr)}};
+  P(y,'#f2c200',1,'cr');P(cw,'#5d6670',1,'cr');P(k,'#222222',1,'cr');P(hk,'#333333',1,'cr');
+  const t=loadAt(R);lab(W(c[0],c[1],tip+2.5),`塔吊 JTL120F8・塔尖 GL+${tip.toFixed(1)} m`,'#9a7b00','cr');
+  lab(W(jt[0],jt[1],hz+2),`R ${R.toFixed(1)} m・${t.toFixed(2)} t`,'#c8102e','cr');
+  el('crHv').textContent=el('crH').value+'°（正北順時針）';el('crRv').textContent=R.toFixed(1)+' m';
+  el('crTxt').innerHTML=`吊升荷重 <b style="color:var(--acc)">${t.toFixed(2)} t</b>（2倍率，3.5～27.3 m 為 4.0 t，其餘依荷重表內插，以原廠表為準）<br>塔尖 GL+${tip.toFixed(1)} m：安裝 GL+41.8 m，之後取最高樓版＋14.6 m（假設淨空同8F啟用時）；拆除前自降8節至 GL+85.4 m`;
+  const ring=(r,col,w,dash)=>{const pts=[];for(let i=0;i<=96;i++){const a=i/96*2*Math.PI;pts.push(W(c[0]+r*Math.sin(a),c[1]+r*Math.cos(a),0.35))}
+   const e=viewer.entities.add({polyline:{positions:pts,width:w,material:dash?new Cesium.PolylineDashMaterialProperty({color:Cesium.Color.fromCssColorString(col)}):Cesium.Color.fromCssColorString(col)}});e._k='rad';eqEnts.push(e)};
+  ring(45,'#ff2d55',3,true);ring(3.5,'#ff2d55',2,true);ring(R,'#ff7a00',3,false);
+  // 施工電梯：塔架隨結構爬升（外爬至24F，內爬至R1F）
+  for(const E of ELV){const topF=E.ext?E.top:TW[E.T].topF+1,k2=Math.min(BH[E.T],topF);if(BH[E.T]<2)continue;
+   const zt=lvl(k2)+1.5,g=new G(),cg=new G(),aE=Math.atan2(U[1],U[0]),sg=Math.sign(E.mo[0])||1;
+   const mc=[E.c[0]+U[0]*E.mo[0]+NV[0]*E.mo[1],E.c[1]+U[1]*E.mo[0]+NV[1]*E.mo[1]];
+   mastL(g,mc,.65,0,zt,aE);
+   for(let z=lvl(3);z<zt;z+=E.ext?10.2:6.8){const tgt=E.ext?[mc[0]-U[0]*sg*2.4,mc[1]-U[1]*sg*2.4]:[mc[0]+NV[0]*1.2,mc[1]+NV[1]*1.2];g.box([mc[0],mc[1],z],[tgt[0],tgt[1],z],.1,.1)}
+   const a=[E.c[0]-U[0]*E.car[0]/2,E.c[1]-U[1]*E.car[0]/2],b=[E.c[0]+U[0]*E.car[0]/2,E.c[1]+U[1]*E.car[0]/2],zm=.3+E.car[2]/2;
+   cg.box([a[0],a[1],zm],[b[0],b[1],zm],E.car[1],E.car[2]);
+   P(g,'#c9ccd1',1,'el');P(cg,E.ext?'#2f6fd6':'#e8890c',1,'el');
+   lab(W(mc[0],mc[1],zt+1.5),`${E.nm}・至 ${fname(E.T,k2)}`,E.ext?'#1f4fa8':'#b86200','el')}
+  vis()}
+ ['crH','crR'].forEach(id=>el(id).addEventListener('input',()=>{clearTimeout(SC.eqT);SC.eqT=setTimeout(equip,60)}));
+ function vis(){const m={fr:el('cFr').checked,nt:el('cNet').checked,sk:el('cSkt').checked,lb:el('cLbl').checked,cr:el('cCr').checked,el:el('cEl').checked,rad:el('cRad').checked&&el('cCr').checked};prims.forEach(p=>{if(p)p.show=m[p._k]});if(SC.eqReady){eqPrims.forEach(p=>p.show=m[p._k]);eqEnts.forEach(e=>e.show=m[e._k])}const lb=el('cLbl').checked;lbls.forEach(e=>e.show=lb)}
  const nf=(x,d=0)=>x.toLocaleString('zh-TW',{minimumFractionDigits:d,maximumFractionDigits:d});
  function panelQty(){TS.forEach(T=>el('h'+T+'v').textContent=H[T]?fname(T,H[T]):'未搭設');
   el('segList').innerHTML=Q.txt.join('<br>');
@@ -269,7 +343,7 @@ async function start(){
  TS.forEach(T=>el('h'+T).addEventListener('input',e=>{el('cSync').checked=false;H[T]=+e.target.value;el('h'+T+'v').textContent=H[T]?fname(T,H[T]):'未搭設';later()}));
  el('hAll').onclick=()=>{el('cSync').checked=false;TS.forEach(T=>{H[T]=maxK(T);el('h'+T).value=H[T]});build()};
  el('hNone').onclick=()=>{el('cSync').checked=false;TS.forEach(T=>{H[T]=0;el('h'+T).value=0});build()};
- ['cFr','cNet','cSkt','cLbl'].forEach(id=>el(id).addEventListener('change',vis));
+ ['cFr','cNet','cSkt','cLbl','cCr','cEl','cRad'].forEach(id=>el(id).addEventListener('change',vis));
  build();
  hs.addEventListener('input',later);
  document.getElementById('cLin').onchange=e=>lines.forEach(l=>l.show=e.target.checked);
