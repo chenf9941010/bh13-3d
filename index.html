@@ -87,7 +87,7 @@ async function start(){
  const [lon,lat]=META.anchor;
  const look=(h,p,r)=>viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+40),70),{offset:new Cesium.HeadingPitchRange(Cesium.Math.toRadians(h),Cesium.Math.toRadians(p),r),duration:1.2});
  let baseH=98,dH=0,model;
- const V={bird:[210,-30,330],front:[300,-8,190],back:[120,-20,220],top:[0,-89.9,380]};
+ const V={bird:[150,-32,330],front:[119.5,-6,170],back:[299.5,-18,210],top:[29.5,-89.9,380]};
  look(...V.bird);
  // ground height from Google tiles on 惠中路
  await new Promise(r=>{let done=false;tileset.initialTilesLoaded.addEventListener(()=>{if(!done){done=true;r()}});setTimeout(()=>{if(!done){done=true;r()}},12000)});
