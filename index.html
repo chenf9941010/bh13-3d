@@ -65,6 +65,12 @@ input[type=range]{width:100%;accent-color:var(--acc)}
  <h2>鷹架數量（已搭設範圍，A+B 棟）</h2>
  <div style="overflow-x:auto"><table class="tbl" id="scafTbl"></table></div>
  <div style="display:flex;justify-content:space-between;margin-top:4px"><span>合計（未稅）</span><b id="scafSum" style="color:var(--acc)"></b></div>
+ <h2>位置校正（對齊 Google 實景）</h2>
+ <div style="font-size:13px;color:var(--mute)">黃色地界角點應對到實景基地角。可用按鈕微調，或按「點地圖校正」後點實景上「惠中路×涮屋馬側」的基地角。</div>
+ <div><button data-mv="a-">◀ 往涮屋馬</button><button data-mv="a+">往北 ▶</button></div>
+ <div><button data-mv="p+">▲ 往惠中路</button><button data-mv="p-">▼ 往後</button> 每次 <select id="mvStep"><option>0.2</option><option selected>0.5</option><option>1</option><option>3</option></select> m</div>
+ <div><button id="calBtn">點地圖校正</button><button id="offCopy">複製偏移值</button><button id="offReset">重設</button></div>
+ <div id="offTxt" style="font-size:13px"></div>
  <h2>模型地面高程微調 <span id="hv"></span></h2>
  <input type="range" id="hs" min="-6" max="6" step="0.1" value="0">
  <h2>說明</h2>
@@ -100,10 +106,13 @@ async function start(){
  let tileset;
  try{tileset=await Cesium.createGooglePhotorealistic3DTileset();viewer.scene.primitives.add(tileset)}
  catch(e){alert('Google 3D 圖磚載入失敗，請確認金鑰與 Map Tiles API：'+e.message);ask();return}
- const site=META.site.concat([META.site[0]]);
- const clip=new Cesium.ClippingPolygonCollection({polygons:[new Cesium.ClippingPolygon({positions:Cesium.Cartesian3.fromDegreesArray(site.flat())})]});
- tileset.clippingPolygons=clip;
- const [lon,lat]=META.anchor;
+ const A0=META.anchor, KX=111319.49*Math.cos(A0[1]*Math.PI/180), KY=111319.49;
+ let OFF=(META.offset||[0,0]).slice();try{const o=JSON.parse(localStorage.getItem('bh13_off')||'null');if(o&&o.length===2)OFF=o}catch(e){}
+ const sh=p=>[p[0]+OFF[0]/KX,p[1]+OFF[1]/KY];
+ let lon=A0[0]+OFF[0]/KX, lat=A0[1]+OFF[1]/KY;
+ const siteLL=()=>META.site.concat([META.site[0]]).map(sh);
+ let clip;const mkClip=()=>{const en=clip?clip.enabled:true;clip=new Cesium.ClippingPolygonCollection({polygons:[new Cesium.ClippingPolygon({positions:Cesium.Cartesian3.fromDegreesArray(siteLL().flat())})]});clip.enabled=en;tileset.clippingPolygons=clip};
+ mkClip();
  const look=(h,p,r)=>viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+40),70),{offset:new Cesium.HeadingPitchRange(Cesium.Math.toRadians(h),Cesium.Math.toRadians(p),r),duration:1.2});
  let baseH=98,dH=0,model;
  const V={bird:[152,-32,330],front:[121.3,-6,170],back:[301.3,-18,210],top:[31.3,-89.9,380]};
@@ -114,10 +123,10 @@ async function start(){
  const mm=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
  model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=11',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
  viewer.scene.primitives.add(model);
- const ground=viewer.entities.add({polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(site.flat()),height:baseH,material:Cesium.Color.fromCssColorString('#8d9196')}});
- const linePos=l=>Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.flatMap(p=>[p[0],p[1],baseH+dH+0.25]));
+ const ground=viewer.entities.add({polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(siteLL().flat()),height:baseH,material:Cesium.Color.fromCssColorString('#8d9196')}});
+ const linePos=l=>Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.map(sh).flatMap(p=>[p[0],p[1],baseH+dH+0.25]));
  const lines=META.lines.map(l=>viewer.entities.add({name:l.name,polyline:{positions:linePos(l),width:l.w,material:Cesium.Color.fromCssColorString(l.color),depthFailMaterial:Cesium.Color.fromCssColorString(l.color).withAlpha(0.35)}}));
- for(const L of META.labels)viewer.entities.add({position:Cesium.Cartesian3.fromDegrees(L.p[0],L.p[1],baseH+L.h),label:{text:L.t,font:'bold 15px sans-serif',fillColor:Cesium.Color.WHITE,showBackground:true,backgroundColor:Cesium.Color.fromCssColorString('#1b2128cc'),disableDepthTestDistance:1e9}});
+ const tl=META.labels.map(L=>({L,e:viewer.entities.add({position:Cesium.Cartesian3.fromDegrees(...sh(L.p),baseH+L.h),label:{text:L.t,font:'bold 15px sans-serif',fillColor:Cesium.Color.WHITE,showBackground:true,backgroundColor:Cesium.Color.fromCssColorString('#1b2128cc'),disableDepthTestDistance:1e9}})}));
  const hs=document.getElementById('hs'),hv=document.getElementById('hv');
  const upd=()=>{dH=+hs.value;hv.textContent=(dH>=0?'+':'')+dH.toFixed(1)+' m';model.modelMatrix=mm();ground.polygon.height=baseH+dH;lines.forEach((e,i)=>e.polyline.positions=linePos(META.lines[i]))};
  hs.oninput=upd;upd();
@@ -225,6 +234,22 @@ async function start(){
  hs.addEventListener('input',later);
  document.getElementById('cLin').onchange=e=>lines.forEach(l=>l.show=e.target.checked);
  document.getElementById('cClip').onchange=e=>{clip.enabled=e.target.checked;ground.show=e.target.checked};
+ // ---------- 位置校正 ----------
+ const offTxt=()=>{el('offTxt').textContent=`目前偏移：東 ${OFF[0].toFixed(2)} m、北 ${OFF[1].toFixed(2)} m`};
+ function applyOff(){lon=A0[0]+OFF[0]/KX;lat=A0[1]+OFF[1]/KY;try{localStorage.setItem('bh13_off',JSON.stringify(OFF))}catch(e){}
+  mkClip();ground.polygon.hierarchy=Cesium.Cartesian3.fromDegreesArray(siteLL().flat());model.modelMatrix=mm();
+  lines.forEach((e,i)=>e.polyline.positions=linePos(META.lines[i]));tl.forEach(o=>o.e.position=Cesium.Cartesian3.fromDegrees(...sh(o.L.p),baseH+o.L.h));
+  later();offTxt()}
+ const AL=[Math.sin(31.3*Math.PI/180),Math.cos(31.3*Math.PI/180)], PP=[Math.sin(301.3*Math.PI/180),Math.cos(301.3*Math.PI/180)];
+ document.querySelectorAll('[data-mv]').forEach(b=>b.onclick=()=>{const st=+el('mvStep').value,d=b.dataset.mv,sg=d[1]==='+'?1:-1,u=d[0]==='a'?AL:PP;OFF[0]+=u[0]*st*sg;OFF[1]+=u[1]*st*sg;applyOff()});
+ el('offReset').onclick=()=>{OFF=(META.offset||[0,0]).slice();applyOff()};
+ el('offCopy').onclick=async()=>{const t=`BH13偏移 東${OFF[0].toFixed(2)} 北${OFF[1].toFixed(2)}`;try{await navigator.clipboard.writeText(t);el('offCopy').textContent='已複製'}catch(e){el('offTxt').textContent=t}setTimeout(()=>el('offCopy').textContent='複製偏移值',1500)};
+ let cal=false;el('calBtn').onclick=()=>{cal=!cal;el('calBtn').classList.toggle('on',cal);el('offTxt').textContent=cal?'請點實景上「臨惠中路、涮屋馬側」的基地角':''};
+ const ch=new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+ ch.setInputAction(ev=>{if(!cal)return;const p=viewer.scene.pickPosition(ev.position);if(!p)return;const c=Cesium.Cartographic.fromCartesian(p);
+  const tlon=Cesium.Math.toDegrees(c.longitude),tlat=Cesium.Math.toDegrees(c.latitude),s0=META.site[0];
+  OFF=[(tlon-s0[0])*KX,(tlat-s0[1])*KY];cal=false;el('calBtn').classList.remove('on');applyOff()},Cesium.ScreenSpaceEventType.LEFT_CLICK);
+ offTxt();
  document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>look(...V[b.dataset.v]));
  // measure
  let on=false,pts=[],ents=[];const box=document.getElementById('meas'),mb=document.getElementById('mb');
