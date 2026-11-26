@@ -48,7 +48,8 @@ input[type=range]{width:100%;accent-color:var(--acc)}
  <label class="l"><input type="checkbox" id="cFr" checked>鷹架（框式施工架）</label>
  <label class="l"><input type="checkbox" id="cNet" checked>安全網（藍色防塵網）</label>
  <label class="l"><input type="checkbox" id="cSkt" checked>斜籬／三角托架</label>
- <label class="l"><input type="checkbox" id="cLbl" checked>樓層標示</label>
+ <label class="l"><input type="checkbox" id="cLbl" checked>樓層牌（掛於外架）</label>
+ <div style="margin:2px 0 4px 26px">牌子 <span class="seg" id="sLb"><button data-v="1" class="on">每層</button><button data-v="2">隔層（奇數層）</button></span></div>
  <label class="l"><input type="checkbox" id="cLin" checked>地界／建築線／落物曲線</label>
  <label class="l"><input type="checkbox" id="cClip" checked>挖除舊飯店實景</label>
  <h2>建物樓層（結構進度）</h2>
@@ -142,7 +143,7 @@ async function start(){
  const el=id=>document.getElementById(id);
  const enuM=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
  // ---------- 鷹架（框式施工架，參照「示範大樓 結構3D」畫法） ----------
- const SC={mode:'plan',N:6,span:1.829,lift:1.725};
+ const SC={mode:'plan',N:6,span:1.829,lift:1.725,lbEvery:1};
  const PRICE={area:1050,bracket:1800,hedge:650,net:60,tie:120};
  const TW=SCAF.towers, TS=['A','B'];
  const lvl=k=>k===1?0:k===2?6.0:10.2+3.4*(k-3);
@@ -194,8 +195,24 @@ async function start(){
   starts.filter(k=>k<=kTop).forEach((k,i,arr)=>{const e=arr[i+1];const z1=e?lvl(e):top;segs.push({z0:lvl(k),z1,cant:k!==1,lbl:`${fname(T,k)}～${e?fname(T,e):fname(T,kTop)}`})});
   return segs}
  const hedgeFloors=T=>SC.mode==='plan'?[5,10,15,20,25]:SC.mode==='ground'?[3,8,13,18,23]:[3];
+ // 樓層牌：白底藍字方牌，平貼外架防塵網外側（參考現場照片）
+ const PW=1.8,PH=1.6,imgC={};
+ function panelImg(t){if(imgC[t])return imgC[t];const c=document.createElement('canvas');c.width=288;c.height=256;const x=c.getContext('2d');
+  x.fillStyle='#fff';x.fillRect(0,0,288,256);x.strokeStyle='#c9d2dc';x.lineWidth=6;x.strokeRect(3,3,282,250);
+  x.fillStyle='#1d3f8f';x.textAlign='center';x.textBaseline='middle';x.font=`bold ${t.length>2?130:180}px Arial,"Noto Sans TC",sans-serif`;x.fillText(t,144,136);
+  return imgC[t]=c.toDataURL()}
+ function panelPrim(t,quads){const pos=[],st=[],idx=[];quads.forEach((q,i)=>{q.forEach(v=>pos.push(...v));st.push(0,0,1,0,1,1,0,1);const b=i*4;idx.push(b,b+1,b+2,b,b+2,b+3)});
+  const geo=new Cesium.Geometry({attributes:{position:new Cesium.GeometryAttribute({componentDatatype:Cesium.ComponentDatatype.DOUBLE,componentsPerAttribute:3,values:new Float64Array(pos)}),
+   st:new Cesium.GeometryAttribute({componentDatatype:Cesium.ComponentDatatype.FLOAT,componentsPerAttribute:2,values:new Float32Array(st)})},
+   indices:new Uint32Array(idx),primitiveType:Cesium.PrimitiveType.TRIANGLES,boundingSphere:Cesium.BoundingSphere.fromVertices(pos)});
+  Cesium.GeometryPipeline.computeNormal(geo);
+  const pr=viewer.scene.primitives.add(new Cesium.Primitive({geometryInstances:new Cesium.GeometryInstance({geometry:geo,modelMatrix:enuM()}),
+   appearance:new Cesium.MaterialAppearance({material:Cesium.Material.fromType('Image',{image:panelImg(t)}),flat:true,faceForward:true,translucent:false,closed:false}),asynchronous:false}));
+  pr._k='lb';return pr}
+ const ptxt=(T,k)=>k<=TW[T].topF?String(k):'R'+(k-TW[T].topF);
  function build(){
   prims.forEach(p=>viewer.scene.primitives.remove(p));prims=[];lbls.forEach(e=>viewer.entities.remove(e));lbls=[];
+  const PAN={};
   Q={area:0,bracket:0,hedge:0,net:0,tie:0,frames:0,braces:0,planks:0,txt:[]};
   const tag=(p,c)=>{if(p)p._k=c;return p};
   for(const pc of SCAF.pieces){
@@ -227,16 +244,15 @@ async function start(){
    if(pc.t!=='C')hedgeFloors(T).filter(k=>k<=kTop).forEach(k=>{hedgeAt(lvl(k));Q.hedge+=P2});
    prims.push(tag(prim(fr,'#b9c1c9',1),'fr'),tag(prim(pl,'#d5d9de',1),'fr'),tag(prim(br,'#e23b3b',1),'sk'),tag(prim(hg,'#d94141',.55),'sk'),tag(prim(nt,'#1f5fbf',.32),'nt'));
    if(pc.t==='C')continue;
-   const lab=sd.map(s=>[Math.hypot(s.qo[0]-s.po[0],s.qo[1]-s.po[1]),[(s.po[0]+s.qo[0])/2+s.n[0]*.3,(s.po[1]+s.qo[1])/2+s.n[1]*.3]]).sort((a,b)=>b[0]-a[0]).slice(0,4);
-   const M=enuM();
-   for(let k=1;k<=kTop;k++){const z=lvl(k)+Math.min(1.6,(lvl(k+1)-lvl(k))/2);
-    for(const [,c] of lab)lbls.push(viewer.entities.add({position:Cesium.Matrix4.multiplyByPoint(M,new Cesium.Cartesian3(c[0],c[1],z),new Cesium.Cartesian3()),
-     label:{text:fname(T,k),font:'bold 15px sans-serif',fillColor:Cesium.Color.fromCssColorString('#c8102e'),showBackground:true,backgroundColor:Cesium.Color.WHITE.withAlpha(.92),
-      backgroundPadding:new Cesium.Cartesian2(6,3),scaleByDistance:new Cesium.NearFarScalar(40,1.1,500,.45),distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0,650)}}))}
+   const lab=sd.map(s=>[Math.hypot(s.qo[0]-s.po[0],s.qo[1]-s.po[1]),s]).sort((a,b)=>b[0]-a[0]).slice(0,4);
+   for(let k=1;k<=kTop;k++){if(SC.lbEvery===2&&k%2===0)continue;const fh=lvl(k+1)-lvl(k),z0=lvl(k)+Math.max(.3,(fh-PH)/2),z1=z0+PH,t=ptxt(T,k);
+    for(const [L,s] of lab){if(L<PW+.4)continue;const tx=(s.qo[0]-s.po[0])/L,ty=(s.qo[1]-s.po[1])/L,e=.14,cx=(s.po[0]+s.qo[0])/2+s.n[0]*e,cy=(s.po[1]+s.qo[1])/2+s.n[1]*e,h=PW/2;
+     const a=[cx-tx*h,cy-ty*h],b=[cx+tx*h,cy+ty*h];(PAN[t]=PAN[t]||[]).push([[a[0],a[1],z0],[b[0],b[1],z0],[b[0],b[1],z1],[a[0],a[1],z1]])}}
   }
+  for(const t in PAN)prims.push(panelPrim(t,PAN[t]));
   vis();panelQty();
  }
- function vis(){const m={fr:el('cFr').checked,nt:el('cNet').checked,sk:el('cSkt').checked};prims.forEach(p=>{if(p)p.show=m[p._k]});const lb=el('cLbl').checked;lbls.forEach(e=>e.show=lb)}
+ function vis(){const m={fr:el('cFr').checked,nt:el('cNet').checked,sk:el('cSkt').checked,lb:el('cLbl').checked};prims.forEach(p=>{if(p)p.show=m[p._k]});const lb=el('cLbl').checked;lbls.forEach(e=>e.show=lb)}
  const nf=(x,d=0)=>x.toLocaleString('zh-TW',{minimumFractionDigits:d,maximumFractionDigits:d});
  function panelQty(){TS.forEach(T=>el('h'+T+'v').textContent=H[T]?fname(T,H[T]):'未搭設');
   el('segList').innerHTML=Q.txt.join('<br>');
@@ -248,6 +264,7 @@ async function start(){
  const segBind=(id,fn)=>el(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;el(id).querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));fn(b.dataset.v)});
  segBind('sMode',v=>{SC.mode=v;el('segRow').style.opacity=v==='cant'?1:.4;build()});
  segBind('sN',v=>{SC.N=+v;build()});
+ segBind('sLb',v=>{SC.lbEvery=+v;build()});
  let tmr=null;const later=()=>{clearTimeout(tmr);tmr=setTimeout(build,150)};
  TS.forEach(T=>el('h'+T).addEventListener('input',e=>{el('cSync').checked=false;H[T]=+e.target.value;el('h'+T+'v').textContent=H[T]?fname(T,H[T]):'未搭設';later()}));
  el('hAll').onclick=()=>{el('cSync').checked=false;TS.forEach(T=>{H[T]=maxK(T);el('h'+T).value=H[T]});build()};
@@ -273,7 +290,7 @@ async function start(){
   const tlon=Cesium.Math.toDegrees(c.longitude),tlat=Cesium.Math.toDegrees(c.latitude),s0=META.site[0];
   OFF=[(tlon-s0[0])*KX,(tlat-s0[1])*KY];cal=false;el('calBtn').classList.remove('on');applyOff()},Cesium.ScreenSpaceEventType.LEFT_CLICK);
  offTxt();
- document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>look(...V[b.dataset.v]));
+ document.querySelectorAll('[data-v]').forEach(b=>{if(V[b.dataset.v])b.onclick=()=>look(...V[b.dataset.v])});
  // measure
  let on=false,pts=[],ents=[];const box=document.getElementById('meas'),mb=document.getElementById('mb');
  mb.onclick=()=>{on=!on;mb.classList.toggle('on',on);pts=[];box.style.display=on?'block':'none';box.innerHTML='點第一個點'};
