@@ -92,7 +92,7 @@ async function start(){
  await new Promise(r=>{let done=false;tileset.initialTilesLoaded.addEventListener(()=>{if(!done){done=true;r()}});setTimeout(()=>{if(!done){done=true;r()}},12000)});
  try{const c=await viewer.scene.sampleHeightMostDetailed([Cesium.Cartographic.fromDegrees(META.probe[0],META.probe[1])]);if(c[0]&&isFinite(c[0].height))baseH=c[0].height}catch(e){}
  const mm=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
- model=await Cesium.Model.fromGltfAsync({url:'data:model/gltf-binary;base64,'+GLB,modelMatrix:mm()});
+ model=await Cesium.Model.fromGltfAsync({url:'data:model/gltf-binary;base64,'+GLB,modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
  viewer.scene.primitives.add(model);
  const ground=viewer.entities.add({polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(site.flat()),height:baseH,material:Cesium.Color.fromCssColorString('#8d9196')}});
  const lines=META.lines.map(l=>viewer.entities.add({name:l.name,polyline:{positions:Cesium.Cartesian3.fromDegreesArray(l.pts.flat()),width:l.w,clampToGround:true,material:Cesium.Color.fromCssColorString(l.color)}}));
