@@ -558,14 +558,10 @@
         }
         const sidesOf = r => r.map((p, i) => { const q = r[(i + 1) % r.length]; const L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1; return [p, q, [(q[1] - p[1]) / L, -(q[0] - p[0]) / L]] });
         const perim = r => r.reduce((m, p, i) => { const q = r[(i + 1) % r.length]; return m + Math.hypot(q[0] - p[0], q[1] - p[1]) }, 0);
-        // 高品質幾何建構器：
-        // 1. 自動分塊（每塊 <= 40,000 頂點，採 Uint16Array 徹底杜絕 65,535 索引溢位破面）
-        // 2. box() 採 24 獨立頂點＋每面精確法線（徹底消除扭曲絲帶與假圓角陰影）
-        // 3. tube() 採 6 邊圓管＋徑向法線（呈現真實鍍鋅圓鋼管高光立體感）
+        // 高品質寫實 PBR 幾何引擎（即時組裝標準 glTF 2.0 二進位 .glb＋內嵌 PNG 貼圖，交由 Cesium.Model 渲染）
+        // 與 bh13.glb 同管線：100% 杜絕 Windows 電腦顯卡破面，支援防滑衝孔踏板貼圖、橘黃菱形防墜網貼圖與真實鍍鋅鋼反光
         class G {
-          constructor() { this.chunks = []; this._new() }
-          _new() { this.cur = { p: [], n: [], i: [] }; this.chunks.push(this.cur) }
-          _ensure(vCnt) { if (this.cur.p.length / 3 + vCnt > 24000) this._new() }
+          constructor(hasUV = false) { this.p = []; this.n = []; this.uv = hasUV ? [] : null; this.i = []; }
           _basis(a, b) {
             const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(...d); if (L < 1e-6) return null;
             const u = [d[0] / L, d[1] / L, d[2] / L];
@@ -576,82 +572,218 @@
             const wl = Math.hypot(wx, wy, wz) || 1; wx /= wl; wy /= wl; wz /= wl;
             return { u, v: [vx, vy, vz], w: [wx, wy, wz], L };
           }
-          // 24 頂點銳利方塊（每面獨立精確法線，適用踏板、踢腳板、底板、木夾板、角鋼）
-          box(a, b, ty, tz) {
+          // 24 頂點銳利方塊（支援可選 UV 貼圖，用於防滑衝孔鋼踏板、樓梯踏階、壁連座、角鋼）
+          box(a, b, ty, tz, uRep = 1, vRep = 1) {
             const B = this._basis(a, b); if (!B) return;
-            this._ensure(24);
-            const { u, v, w } = B, hy = ty / 2, hz = tz / 2, c = this.cur;
+            const { u, v, w } = B, hy = ty / 2, hz = tz / 2;
             const V = [v[0] * hy, v[1] * hy, v[2] * hy], W = [w[0] * hz, w[1] * hz, w[2] * hz];
             const pt = (e, sv, sw) => [e[0] + sv * V[0] + sw * W[0], e[1] + sv * V[1] + sw * W[1], e[2] + sv * V[2] + sw * W[2]];
             const p0 = pt(a, -1, -1), p1 = pt(a, -1, 1), p2 = pt(a, 1, -1), p3 = pt(a, 1, 1);
             const p4 = pt(b, -1, -1), p5 = pt(b, -1, 1), p6 = pt(b, 1, -1), p7 = pt(b, 1, 1);
             const faces = [
-              [p0, p1, p3, p2, [-u[0], -u[1], -u[2]]],
-              [p4, p6, p7, p5, u],
-              [p0, p4, p5, p1, [-v[0], -v[1], -v[2]]],
-              [p2, p3, p7, p6, v],
-              [p0, p2, p6, p4, [-w[0], -w[1], -w[2]]],
-              [p1, p5, p7, p3, w]
+              [p0, p1, p3, p2, [-u[0], -u[1], -u[2]], [0, 0, 0, 1, 1, 1, 1, 0]],
+              [p4, p6, p7, p5, u, [0, 0, 1, 0, 1, 1, 0, 1]],
+              [p0, p4, p5, p1, [-v[0], -v[1], -v[2]], [0, 0, uRep, 0, uRep, 0.15, 0, 0.15]],
+              [p2, p3, p7, p6, v, [0, 0, 0, 0.15, uRep, 0.15, uRep, 0]],
+              [p0, p2, p6, p4, [-w[0], -w[1], -w[2]], [0, 0, 0, vRep, uRep, vRep, uRep, 0]],
+              [p1, p5, p7, p3, w, [0, 0, uRep, 0, uRep, vRep, 0, vRep]]
             ];
-            for (const [q0, q1, q2, q3, nm] of faces) {
-              const k = c.p.length / 3;
-              c.p.push(...q0, ...q1, ...q2, ...q3);
-              c.n.push(...nm, ...nm, ...nm, ...nm);
-              c.i.push(k, k + 1, k + 2, k, k + 2, k + 3);
+            for (const [q0, q1, q2, q3, nm, uvs] of faces) {
+              const k = this.p.length / 3;
+              this.p.push(...q0, ...q1, ...q2, ...q3);
+              this.n.push(...nm, ...nm, ...nm, ...nm);
+              if (this.uv) this.uv.push(...uvs);
+              this.i.push(k, k + 1, k + 2, k, k + 2, k + 3);
             }
           }
-          // 6 邊圓鋼管（徑向平滑法線，呈現真實鍍鋅圓管反光，12 頂點 / 12 三角面）
+          // 圓鋼管（外向 CCW 繞序＋徑向平滑法線，呈現真實鍍鋅圓管金屬反光）
           tube(a, b, r, segs = 6) {
             const B = this._basis(a, b); if (!B) return;
-            this._ensure(segs * 2);
-            const { v, w } = B, c = this.cur, k = c.p.length / 3;
+            const { v, w } = B, k = this.p.length / 3;
             for (let s = 0; s < segs; s++) {
               const ang = s / segs * Math.PI * 2, co = Math.cos(ang), si = Math.sin(ang);
               const nx = v[0] * co + w[0] * si, ny = v[1] * co + w[1] * si, nz = v[2] * co + w[2] * si;
-              c.p.push(a[0] + nx * r, a[1] + ny * r, a[2] + nz * r, b[0] + nx * r, b[1] + ny * r, b[2] + nz * r);
-              c.n.push(nx, ny, nz, nx, ny, nz);
+              this.p.push(a[0] + nx * r, a[1] + ny * r, a[2] + nz * r, b[0] + nx * r, b[1] + ny * r, b[2] + nz * r);
+              this.n.push(nx, ny, nz, nx, ny, nz);
+              if (this.uv) this.uv.push(0, 0, 1, 0);
             }
             for (let s = 0; s < segs; s++) {
               const s2 = (s + 1) % segs, i0 = k + s * 2, i1 = i0 + 1, i2 = k + s2 * 2, i3 = i2 + 1;
-              c.i.push(i0, i1, i3, i0, i3, i2);
+              this.i.push(i0, i3, i1, i0, i2, i3);
             }
           }
-          quad(a, b, c, d) {
-            this._ensure(4);
-            const cur = this.cur, k = cur.p.length / 3;
+          quad(a, b, c, d, uRep = 1, vRep = 1) {
+            const k = this.p.length / 3;
             const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
             let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
-            cur.p.push(...a, ...b, ...c, ...d); cur.n.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
-            cur.i.push(k, k + 1, k + 2, k, k + 2, k + 3);
+            this.p.push(...a, ...b, ...c, ...d); this.n.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
+            if (this.uv) this.uv.push(0, 0, uRep, 0, uRep, vRep, 0, vRep);
+            this.i.push(k, k + 1, k + 2, k, k + 2, k + 3);
           }
         }
-        // 將分塊幾何打包成單一 Primitive（內含多個 <=40k 頂點的 GeometryInstance，零溢位、少 Draw Call）
-        function primsOf(g, css, alpha, key) {
-          const out = [], M = enuM(), col = Cesium.ColorGeometryInstanceAttribute.fromColor(Cesium.Color.fromCssColorString(css).withAlpha(alpha));
-          for (const c of g.chunks) {
-            if (!c.i.length) continue;
-            const geo = new Cesium.Geometry({
-              attributes: {
-                position: new Cesium.GeometryAttribute({ componentDatatype: Cesium.ComponentDatatype.DOUBLE, componentsPerAttribute: 3, values: new Float64Array(c.p) }),
-                normal: new Cesium.GeometryAttribute({ componentDatatype: Cesium.ComponentDatatype.FLOAT, componentsPerAttribute: 3, values: new Float32Array(c.n) })
-              },
-              indices: new Uint16Array(c.i),
-              primitiveType: Cesium.PrimitiveType.TRIANGLES,
-              boundingSphere: Cesium.BoundingSphere.fromVertices(c.p)
-            });
-            const pr = viewer.scene.primitives.add(new Cesium.Primitive({
-              geometryInstances: new Cesium.GeometryInstance({ geometry: geo, attributes: { color: col } }),
-              modelMatrix: M,
-              compressVertices: false,
-              appearance: new Cesium.PerInstanceColorAppearance({ translucent: alpha < 1, closed: false, faceForward: true }),
-              asynchronous: false
-            }));
-            if (key) pr._k = key;
-            out.push(pr);
+        // 生成寫實內嵌 PNG 紋理（Canvas -> Uint8Array）：防滑衝孔鍍鋅鋼踏板、橘邊黃格網長條防墜網
+        const glbTexC = {};
+        function getGlbTexBytes(kind) {
+          if (glbTexC[kind]) return glbTexC[kind];
+          const c = document.createElement('canvas'); c.width = 256; c.height = 256; const x = c.getContext('2d');
+          if (kind === 'plank') {
+            // 寫實防滑衝孔鍍鋅鋼踏板（對照實景照片：亮銀鍍鋅底＋縱向雙肋折溝＋整齊防滑衝孔圓點列）
+            x.fillStyle = '#cdd5de'; x.fillRect(0, 0, 256, 256);
+            // 兩側折邊陰影＋中央縱向加強凹槽
+            x.fillStyle = '#9aa5b2'; x.fillRect(0, 0, 256, 14); x.fillRect(0, 242, 256, 14);
+            x.fillStyle = '#aeb8c4'; x.fillRect(0, 122, 256, 12);
+            x.fillStyle = '#7e8996'; x.fillRect(0, 14, 256, 3); x.fillRect(0, 239, 256, 3);
+            x.fillStyle = '#e4ebf2'; x.fillRect(0, 17, 256, 4); x.fillRect(0, 235, 256, 4);
+            // 4 列整齊防滑衝孔圓點（深灰孔心＋亮銀凸緣）
+            const rows = [44, 86, 170, 212];
+            for (const r of rows) {
+              for (let col = 16; col < 256; col += 32) {
+                x.fillStyle = '#47515c'; x.beginPath(); x.arc(col, r, 6.2, 0, Math.PI * 2); x.fill();
+                x.fillStyle = '#eef4fa'; x.beginPath(); x.arc(col - 1.5, r - 1.5, 2.5, 0, Math.PI * 2); x.fill();
+              }
+            }
+          } else if (kind === 'catchnet') {
+            // 橘邊黃菱形格網長條防墜網（完全還原參考圖：上下橘色強化邊繩＋透明底亮黃菱形網格）
+            x.clearRect(0, 0, 256, 256);
+            x.strokeStyle = '#f5b800'; x.lineWidth = 6;
+            for (let i = -256; i < 512; i += 32) {
+              x.beginPath(); x.moveTo(i, 14); x.lineTo(i + 228, 242); x.stroke();
+              x.beginPath(); x.moveTo(i + 228, 14); x.lineTo(i, 242); x.stroke();
+            }
+            // 上下橘色加強邊條
+            x.fillStyle = '#e8680c'; x.fillRect(0, 0, 256, 18); x.fillRect(0, 238, 256, 18);
           }
+          const b64 = c.toDataURL('image/png').split(',')[1];
+          const bin = atob(b64), arr = new Uint8Array(bin.length);
+          for (let k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
+          return glbTexC[kind] = arr;
+        }
+        // 將多個材質（含內嵌 PNG 紋理）打包成標準 glTF 2.0 (.glb)
+        function buildGlbBytes(parts) {
+          const valid = parts.filter(pt => pt.g && pt.g.i.length > 0);
+          if (!valid.length) return null;
+          const bvs = [], accs = [], mats = [], primDefs = [], imgs = [], texs = [], chunks = [];
+          let byteOff = 0;
+          const pushBuf = arr => {
+            const u8 = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+            const pad = (4 - (u8.byteLength & 3)) & 3;
+            const off = byteOff;
+            chunks.push(u8);
+            if (pad) chunks.push(new Uint8Array(pad));
+            byteOff += u8.byteLength + pad;
+            return { off, len: u8.byteLength };
+          };
+          const texMap = {};
+          const ensureTex = kind => {
+            if (texMap[kind] !== undefined) return texMap[kind];
+            const png = getGlbTexBytes(kind);
+            const bp = pushBuf(png);
+            const bv = bvs.length; bvs.push({ buffer: 0, byteOffset: bp.off, byteLength: bp.len });
+            const im = imgs.length; imgs.push({ bufferView: bv, mimeType: 'image/png' });
+            const tx = texs.length; texs.push({ source: im, sampler: 0 });
+            return texMap[kind] = tx;
+          };
+          for (let mIdx = 0; mIdx < valid.length; mIdx++) {
+            const { g, css = '#ffffff', alpha = 1, met = 0.25, rough = 0.5, tex = null, alphaMode = null } = valid[mIdx];
+            const col = Cesium.Color.fromCssColorString(css);
+            const lin = v => v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+            const pbr = {
+              baseColorFactor: [lin(col.red), lin(col.green), lin(col.blue), alpha],
+              metallicFactor: met,
+              roughnessFactor: rough
+            };
+            if (tex) pbr.baseColorTexture = { index: ensureTex(tex) };
+            const mat = {
+              pbrMetallicRoughness: pbr,
+              doubleSided: true,
+              alphaMode: alphaMode || (alpha < 0.99 ? 'BLEND' : 'OPAQUE')
+            };
+            if (mat.alphaMode === 'MASK') mat.alphaCutoff = 0.35;
+            mats.push(mat);
+            const vCnt = g.p.length / 3;
+            const posF = new Float32Array(g.p.length), nrmF = new Float32Array(g.n.length);
+            let mn0 = 1e9, mn1 = 1e9, mn2 = 1e9, mx0 = -1e9, mx1 = -1e9, mx2 = -1e9;
+            for (let k = 0; k < g.p.length; k += 3) {
+              const x = g.p[k], y = g.p[k + 2], z = -g.p[k + 1];
+              posF[k] = x; posF[k + 1] = y; posF[k + 2] = z;
+              if (x < mn0) mn0 = x; if (x > mx0) mx0 = x;
+              if (y < mn1) mn1 = y; if (y > mx1) mx1 = y;
+              if (z < mn2) mn2 = z; if (z > mx2) mx2 = z;
+              nrmF[k] = g.n[k]; nrmF[k + 1] = g.n[k + 2]; nrmF[k + 2] = -g.n[k + 1];
+            }
+            const idxArr = vCnt > 65535 ? new Uint32Array(g.i) : new Uint16Array(g.i);
+            const idxCT = vCnt > 65535 ? 5125 : 5123;
+            const bP = pushBuf(posF), bN = pushBuf(nrmF), bI = pushBuf(idxArr);
+            const bvP = bvs.length; bvs.push({ buffer: 0, byteOffset: bP.off, byteLength: bP.len, target: 34962 });
+            const bvN = bvs.length; bvs.push({ buffer: 0, byteOffset: bN.off, byteLength: bN.len, target: 34962 });
+            const bvI = bvs.length; bvs.push({ buffer: 0, byteOffset: bI.off, byteLength: bI.len, target: 34963 });
+            const aP = accs.length; accs.push({ bufferView: bvP, componentType: 5126, count: vCnt, type: 'VEC3', min: [mn0, mn1, mn2], max: [mx0, mx1, mx2] });
+            const aN = accs.length; accs.push({ bufferView: bvN, componentType: 5126, count: vCnt, type: 'VEC3' });
+            const aI = accs.length; accs.push({ bufferView: bvI, componentType: idxCT, count: idxArr.length, type: 'SCALAR' });
+            const attrs = { POSITION: aP, NORMAL: aN };
+            if (g.uv && g.uv.length) {
+              const uvF = new Float32Array(g.uv);
+              const bU = pushBuf(uvF);
+              const bvU = bvs.length; bvs.push({ buffer: 0, byteOffset: bU.off, byteLength: bU.len, target: 34962 });
+              const aU = accs.length; accs.push({ bufferView: bvU, componentType: 5126, count: vCnt, type: 'VEC2' });
+              attrs.TEXCOORD_0 = aU;
+            }
+            primDefs.push({ attributes: attrs, indices: aI, material: mIdx });
+          }
+          const gltf = {
+            asset: { version: '2.0' },
+            scene: 0, scenes: [{ nodes: [0] }],
+            nodes: [{ mesh: 0 }],
+            meshes: [{ primitives: primDefs }],
+            materials: mats,
+            accessors: accs,
+            bufferViews: bvs,
+            buffers: [{ byteLength: byteOff }]
+          };
+          if (imgs.length) {
+            gltf.images = imgs;
+            gltf.textures = texs;
+            gltf.samplers = [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }];
+          }
+          const jBytes = new TextEncoder().encode(JSON.stringify(gltf));
+          const jPad = (4 - (jBytes.byteLength & 3)) & 3;
+          const totalLen = 12 + 8 + jBytes.byteLength + jPad + 8 + byteOff;
+          const out = new Uint8Array(totalLen);
+          const dv = new DataView(out.buffer);
+          dv.setUint32(0, 0x46546C67, true);
+          dv.setUint32(4, 2, true);
+          dv.setUint32(8, totalLen, true);
+          dv.setUint32(12, jBytes.byteLength + jPad, true);
+          dv.setUint32(16, 0x4E4F534A, true);
+          out.set(jBytes, 20);
+          for (let k = 0; k < jPad; k++) out[20 + jBytes.byteLength + k] = 0x20;
+          const binHdr = 20 + jBytes.byteLength + jPad;
+          dv.setUint32(binHdr, byteOff, true);
+          dv.setUint32(binHdr + 4, 0x004E4942, true);
+          let cur = binHdr + 8;
+          for (const ch of chunks) { out.set(ch, cur); cur += ch.byteLength; }
           return out;
         }
-        function prim(g, css, alpha) { const a = primsOf(g, css, alpha); return a.length ? a[0] : null }
+        let buildGen = 0;
+        function addGlbLayer(parts, key, targetArr, gen) {
+          const bytes = buildGlbBytes(parts);
+          if (!bytes) return;
+          const url = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+          Cesium.Model.fromGltfAsync({ url, modelMatrix: enuM(), upAxis: Cesium.Axis.Y, forwardAxis: Cesium.Axis.X }).then(m => {
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            if (gen !== undefined && gen !== buildGen) { try { m.destroy(); } catch (e) { } return; }
+            try { m.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(1.0, 0.35); } catch (e) { }
+            m._k = key;
+            viewer.scene.primitives.add(m);
+            targetArr.push(m);
+            vis();
+          }).catch(e => console.error('GLB layer err:', key, e));
+        }
+        function primsOf(g, css, alpha, key) {
+          if (!g || !g.i.length) return [];
+          addGlbLayer([{ g, css, alpha, met: 0.35, rough: 0.55 }], key, eqPrims);
+          return [];
+        }
         // 高精細編織防塵網 / 斜籬網格紋理（Canvas 程式生成）
         const meshTexC = {};
         function meshTex(kind) {
@@ -771,101 +903,139 @@
         const EXT_ELV_CUT = getExtElvPts();
         const inElvCut = (T, p) => EXT_ELV_CUT.some(e => e.T === T && Math.hypot(p[0] - e.p[0], p[1] - e.p[1]) < e.r);
         const nearStair = (T, p) => (SCAF.stairs || []).some(s => s[2] === T && Math.hypot(p[0] - s[0], p[1] - s[1]) < 1.45);
-        // 繪製銳利角鋼三角托架桁架（24頂點方鋼，零破面）
+        // 繪製寫實多支並排鍍鋅鋼三角托架（對照參考圖與 DWG 說明 7：L130=2支、L150/190=3支、L250+=4支並排角鋼／槽鋼）
         function drawTrussBracket(g, pWall, pTip, z0, len) {
-          const isLong = len >= 3.0, tMain = isLong ? .10 : .075, tSub = isLong ? .065 : .05;
-          const drop = Math.min(2.6, Math.max(1.25, len * 0.58));
-          const aTop = [pWall[0], pWall[1], z0], bTip = [pTip[0], pTip[1], z0], aBot = [pWall[0], pWall[1], z0 - drop];
-          g.box(aTop, bTip, tMain, tMain);
-          g.box(bTip, aBot, tMain * 0.85, tMain * 0.85);
-          g.box(aTop, aBot, tMain * 0.85, tMain * 0.85);
-          const nWeb = len >= 3.0 ? 3 : (len >= 1.8 ? 2 : 1);
-          for (let w = 1; w <= nWeb; w++) {
-            const f = w / (nWeb + 1);
-            const ptT = [aTop[0] + (bTip[0] - aTop[0]) * f, aTop[1] + (bTip[1] - aTop[1]) * f, z0];
-            const ptD = [aBot[0] + (bTip[0] - aBot[0]) * f, aBot[1] + (bTip[1] - aBot[1]) * f, z0 - drop * (1 - f)];
-            g.box(ptT, ptD, tSub, tSub);
-            if (w > 1) {
-              const fp = (w - 1) / (nWeb + 1);
-              const prevT = [aTop[0] + (bTip[0] - aTop[0]) * fp, aTop[1] + (bTip[1] - aTop[1]) * fp, z0];
-              g.box(prevT, ptD, tSub * 0.85, tSub * 0.85);
-            }
+          const dx = pTip[0] - pWall[0], dy = pTip[1] - pWall[1], L = Math.hypot(dx, dy) || 1;
+          const px = -dy / L, py = dx / L; // 垂直托架方向（並排偏置）
+          const nPar = len >= 2.5 ? 3 : 2; // 並排 2~3 支角鋼，呈現真實鋼構托架群組厚實感
+          const gap = 0.10;
+          const drop = Math.min(1.65, Math.max(0.85, len * 0.45));
+          const tMain = len >= 3.0 ? 0.065 : 0.055;
+          for (let j = 0; j < nPar; j++) {
+            const off = (j - (nPar - 1) / 2) * gap;
+            const ox = px * off, oy = py * off;
+            const aTop = [pWall[0] + ox, pWall[1] + oy, z0];
+            const bTip = [pTip[0] + ox, pTip[1] + oy, z0];
+            const aBot = [pWall[0] + ox, pWall[1] + oy, z0 - drop];
+            // 上弦水平槽鋼＋斜撐＋靠牆背板角鋼
+            g.box(aTop, bTip, tMain * 0.8, tMain * 1.3);
+            g.box(bTip, aBot, tMain * 0.75, tMain * 1.1);
+            g.box(aTop, aBot, tMain * 0.75, tMain * 1.1);
+          }
+          // 並排角鋼間的橫向連繫鐵件（前端、中段、靠牆）
+          const spanW = (nPar - 1) * gap + 0.10;
+          for (const f of [0.15, 0.55, 0.95]) {
+            const cx = pWall[0] + dx * f, cy = pWall[1] + dy * f;
+            g.box([cx - px * spanW / 2, cy - py * spanW / 2, z0 - 0.02], [cx + px * spanW / 2, cy + py * spanW / 2, z0 - 0.02], 0.04, 0.04);
           }
         }
         function build() {
+          const myGen = ++buildGen;
           prims.forEach(p => viewer.scene.primitives.remove(p)); prims = []; lbls.forEach(e => viewer.entities.remove(e)); lbls = [];
           const PAN = {};
           Q = { area: 0, bracket: 0, hedge: 0, net: 0, tie: 0, frames: 0, braces: 0, planks: 0, txt: [] };
           const tag = (p, c) => { if (p) p._k = c; return p };
           const useElvCut = el('cEl') ? el('cEl').checked : true;
           const hi = SC.det === 'hi';
-          // 依真實工地構件分材質：
-          // fr=鍍鋅門型架主圓管(#c4cdd6), joint=深鐵灰插銷套管/掛鉤/樞軸(#4e5762), brX=亮銀交叉拉桿(#dde4ec)
-          // pl=深灰防滑雙片踏板(#7a8490), toe=獨立工地黃踢腳板(#e0ae1a), jack=底部調整座(#565f6b)
-          // tieG=壁拉桿/分配鐵管(#4b5563), wood=承載木夾板(#9d7849), stairG=鋁合金內樓梯(#b8c2cc), topRail=頂層黃色先行扶手(#f2be16)
-          const fr = new G(), joint = new G(), brX = new G(), pl = new G(), toe = new G(), jack = new G(), tieG = new G(), wood = new G(), stairG = new G(), topRail = new G();
+          // 對照參考圖（仁愛路都更 佑昇鷹架）分材質：
+          // fr=亮銀鍍鋅圓鋼管門架、brX=極亮銀鍍鋅交叉拉桿、pl=防滑衝孔鍍鋅鋼踏板(含UV圓孔貼圖)
+          // catchNet=內側橘邊黃菱形長條防墜網(含UV透明貼圖)、joint=深銀灰接頭與底座、tieG=壁拉桿與承載槽鋼
+          // tieYel=壁連座亮黃錨座方牌、tieRed=紅色固定夾頭/扣件、brGalv=寫實鍍鋅鋼三角托架、brWarn=大懸挑警示點綴
+          const fr = new G(), joint = new G(), brX = new G(), pl = new G(true), catchNet = new G(true);
+          const jack = new G(), tieG = new G(), tieYel = new G(), tieRed = new G(), topRail = new G();
           const br = new G(), brLong = new G(), hgFr = new G(), hgFlat = new G(), ntFlat = new G();
-          const hgTex = new GT(), ntTex = new GT(), plTex = new GT();
+          const hgTex = new GT(), ntTex = new GT();
           const lerp = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
-          // 單根圓管（高精細用 6 邊圓管，標準用銳利方柱）
-          const pipe = (g, a, b, r) => hi ? g.tube(a, b, r, 5) : g.box(a, b, r * 2, r * 2);
-          // 繪製一組標準「182.9×80 雙片工作踏板單元」（左右各縮 3.5cm 留單元接縫＋兩端深灰掛鉤＋頂面衝孔紋理）
-          const drawPlankUnit = (i1, i2, o1, o2, z, Wd) => {
+          const pipe = (g, a, b, r) => hi ? g.tube(a, b, r, 6) : g.box(a, b, r * 2, r * 2);
+          // 繪製一組標準「182.9×80 雙片防滑衝孔鍍鋅鋼踏板單元」＋「內側橘邊黃菱形長條防墜網」
+          const drawPlankUnit = (i1, i2, o1, o2, n, z, Wd, isMain) => {
             const bayL = Math.hypot(o2[0] - o1[0], o2[1] - o1[1]);
-            const trim = Math.min(0.04, bayL * 0.04) / Math.max(bayL, 0.1);
+            const trim = Math.min(0.038, bayL * 0.035) / Math.max(bayL, 0.1);
             const a1 = lerp(i1, i2, trim), a2 = lerp(i1, i2, 1 - trim);
             const b1 = lerp(o1, o2, trim), b2 = lerp(o1, o2, 1 - trim);
             if (hi) {
-              const pw = Math.max(0.20, Wd * 0.36);
+              const pw = Math.max(0.22, Wd * 0.39);
               for (const frac of [0.27, 0.73]) {
                 const p1 = lerp(a1, b1, frac), p2 = lerp(a2, b2, frac);
-                // 踏板本體（銳利 24 頂點方塊，厚 4.2cm）
-                pl.box([p1[0], p1[1], z + .024], [p2[0], p2[1], z + .024], pw, .042);
-                // 踏板頂面防滑衝孔貼圖（微抬 2mm 防 Z-fighting）
-                const q0 = lerp(a1, b1, frac - 0.18), q1 = lerp(a2, b2, frac - 0.18), q2 = lerp(a2, b2, frac + 0.18), q3 = lerp(a1, b1, frac + 0.18);
-                plTex.quad([q0[0], q0[1], z + .047], [q1[0], q1[1], z + .047], [q2[0], q2[1], z + .047], [q3[0], q3[1], z + .047], Math.max(1, bayL / 0.6), 1);
-                // 踏板採 7cm 單元間隙＋深色折邊貼圖呈現獨立單元
+                // 防滑衝孔鍍鋅鋼踏板（內嵌衝孔圓點貼圖，厚 4.5cm，左右各留縫隙一眼看出單片踏板）
+                pl.box([p1[0], p1[1], z + .025], [p2[0], p2[1], z + .025], pw, .045, Math.max(1.5, bayL / 0.45), 1);
               }
-              // 獨立單元工地黃踢腳板（左右留 4cm 縫隙＋銳利 24 頂點方板，絕不扭曲）
-              const t1 = lerp(o1, o2, trim), t2 = lerp(o1, o2, 1 - trim);
-              toe.box([t1[0], t1[1], z + .11], [t2[0], t2[1], z + .11], .028, .15);
+              // 內側橘邊黃菱形長條防墜網（施工架與結構體間隙防墜，對照參考圖 1 & 3 與施工圖說明 1）
+              if (isMain) {
+                const netW = 0.28;
+                const n1 = [a1[0] - n[0] * netW, a1[1] - n[1] * netW, z + 0.06];
+                const n2 = [a2[0] - n[0] * netW, a2[1] - n[1] * netW, z + 0.06];
+                const m1 = [a1[0] - n[0] * 0.02, a1[1] - n[1] * 0.02, z + 0.04];
+                const m2 = [a2[0] - n[0] * 0.02, a2[1] - n[1] * 0.02, z + 0.04];
+                catchNet.quad(n1, n2, m2, m1, Math.max(2, bayL / 0.35), 1);
+              }
             } else {
               const m1 = lerp(a1, b1, 0.5), m2 = lerp(a2, b2, 0.5);
-              pl.box([m1[0], m1[1], z + .028], [m2[0], m2[1], z + .028], Math.max(.3, Wd - .12), .044);
+              pl.box([m1[0], m1[1], z + .028], [m2[0], m2[1], z + .028], Math.max(.3, Wd - .12), .044, 2, 1);
             }
           };
-          // 繪製單組「門型施工架端框單元」（W80×H172.5：2 根圓管立柱＋接頭套管＋頂橫桿＋2 根爬梯橫檔＋45° 肩部補強斜撐）
+          // 繪製寫實「6 階水平衝孔鋼樓梯單元」（完全對照參考圖 1：雙側斜弦管＋6 階水平衝孔踏階＋雙斜扶手）
+          const drawStairUnit = (i1, i2, o1, o2, z, z2, up) => {
+            const sA1 = lerp(i1, o1, 0.22), sA2 = lerp(i2, o2, 0.22);
+            const sB1 = lerp(i1, o1, 0.78), sB2 = lerp(i2, o2, 0.78);
+            const pA0 = up ? [sA1[0], sA1[1], z + .04] : [sA2[0], sA2[1], z + .04];
+            const pA1 = up ? [sA2[0], sA2[1], z2 + .04] : [sA1[0], sA1[1], z2 + .04];
+            const pB0 = up ? [sB1[0], sB1[1], z + .04] : [sB2[0], sB2[1], z + .04];
+            const pB1 = up ? [sB2[0], sB2[1], z2 + .04] : [sB1[0], sB1[1], z2 + .04];
+            // 兩側斜向梯弦管＋雙側斜向扶手
+            pipe(fr, pA0, pA1, 0.018);
+            pipe(fr, pB0, pB1, 0.018);
+            pipe(fr, [pA0[0], pA0[1], pA0[2] + 0.85], [pA1[0], pA1[1], pA1[2] + 0.85], 0.015);
+            pipe(fr, [pB0[0], pB0[1], pB0[2] + 0.85], [pB1[0], pB1[1], pB1[2] + 0.85], 0.015);
+            // 6 階水平衝孔踏階板（與參考圖 1 完全一致的階梯感！）
+            const steps = 6;
+            const dX = pA1[0] - pA0[0], dY = pA1[1] - pA0[1], dL = Math.hypot(dX, dY) || 1;
+            const tx = dX / dL, ty = dY / dL;
+            const stepDepth = Math.min(0.24, dL / (steps + 1.2));
+            for (let s = 1; s <= steps; s++) {
+              const f = s / (steps + 1);
+              const sz = z + 0.04 + (z2 - z) * f;
+              const cA = [pA0[0] + dX * f, pA0[1] + dY * f, sz];
+              const cB = [pB0[0] + dX * f, pB0[1] + dY * f, sz];
+              const mid = [(cA[0] + cB[0]) / 2, (cA[1] + cB[1]) / 2, sz];
+              const st1 = [mid[0] - tx * stepDepth / 2, mid[1] - ty * stepDepth / 2, sz];
+              const st2 = [mid[0] + tx * stepDepth / 2, mid[1] + ty * stepDepth / 2, sz];
+              pl.box(st1, st2, Math.hypot(cB[0] - cA[0], cB[1] - cA[1]), 0.032, 1, 1);
+            }
+          };
+          // 繪製台式標準門型施工架端框（對照參考圖 2：2 根Ø48圓管立柱＋接頭套管＋頂橫桿＋中上加強橫桿＋兩側 45° 肩部斜撐）
           const drawPortalFrame = (a, b, z, z2) => {
             const hL = z2 - z;
             pipe(fr, [a[0], a[1], z], [a[0], a[1], z2], .024);
             pipe(fr, [b[0], b[1], z], [b[0], b[1], z2], .024);
             pipe(fr, [a[0], a[1], z2], [b[0], b[1], z2], .022);
             if (!hi) return;
-            // 立柱頂部插銷連接套管（每步 172.5cm 一處深色環，明確區分上下層獨立門架）
-            joint.tube([a[0], a[1], z2 - .07], [a[0], a[1], z2 + .07], .034, 5);
-            joint.tube([b[0], b[1], z2 - .07], [b[0], b[1], z2 + .07], .034, 5);
+            // 立柱插銷連接套管（每 172.5cm 接頭清晰可辨）
+            joint.tube([a[0], a[1], z2 - .06], [a[0], a[1], z2 + .06], .030, 6);
+            joint.tube([b[0], b[1], z2 - .06], [b[0], b[1], z2 + .06], .030, 6);
             if (hL > 1.1) {
-              // 2 根側邊水平補強／爬梯橫檔（高 0.52m 與 1.10m）＋兩側 45° 肩部補強斜管
-              pipe(fr, [a[0], a[1], z + hL * 0.32], [b[0], b[1], z + hL * 0.32], .016);
-              pipe(fr, [a[0], a[1], z + hL * 0.65], [b[0], b[1], z + hL * 0.65], .016);
-              const zs = z2 - 0.34, aIn = lerp(a, b, 0.30), bIn = lerp(b, a, 0.30);
-              pipe(fr, [a[0], a[1], zs], [aIn[0], aIn[1], z2], .015);
-              pipe(fr, [b[0], b[1], zs], [bIn[0], bIn[1], z2], .015);
+              // 對照參考圖 2 的經典門架造型：頂部下方 0.38m 橫桿＋兩側 45° 斜撐＋中段 0.90m 橫檔
+              const zUpper = z2 - 0.36;
+              pipe(fr, [a[0], a[1], zUpper], [b[0], b[1], zUpper], .018);
+              pipe(fr, [a[0], a[1], z + hL * 0.42], [b[0], b[1], z + hL * 0.42], .015);
+              const aIn = lerp(a, b, 0.32), bIn = lerp(b, a, 0.32);
+              pipe(fr, [a[0], a[1], zUpper], [aIn[0], aIn[1], z2], .016);
+              pipe(fr, [b[0], b[1], zUpper], [bIn[0], bIn[1], z2], .016);
             }
           };
-          // 繪製單跨「交叉拉桿 X 型單元」（左右微微內縮扣住立柱銷座＋正中央樞軸鉚釘）
-          const drawXBrace = (p1, p2, n, z, z2) => {
-            const off = 0.028;
+          // 繪製交叉拉桿 X 型單元（內外雙側亮銀圓管＋中央樞軸）
+          const drawXBrace = (p1, p2, n, z, z2, sign = 1) => {
+            const off = 0.026 * sign;
             const q1 = [p1[0] + n[0] * off, p1[1] + n[1] * off], q2 = [p2[0] + n[0] * off, p2[1] + n[1] * off];
-            const q1b = [p1[0] + n[0] * (off + 0.022), p1[1] + n[1] * (off + 0.022)], q2b = [p2[0] + n[0] * (off + 0.022), p2[1] + n[1] * (off + 0.022)];
-            const zBot = z + 0.12, zTop = z2 - 0.12;
+            const q1b = [p1[0] + n[0] * (off + 0.020 * sign), p1[1] + n[1] * (off + 0.020 * sign)];
+            const q2b = [p2[0] + n[0] * (off + 0.020 * sign), p2[1] + n[1] * (off + 0.020 * sign)];
+            const zBot = z + 0.14, zTop = z2 - 0.14;
             if (zTop <= zBot + 0.2) return;
             pipe(brX, [q1[0], q1[1], zBot], [q2[0], q2[1], zTop], .013);
             pipe(brX, [q2b[0], q2b[1], zBot], [q1b[0], q1b[1], zTop], .013);
-            if (hi) {
-              // 中央樞軸鉚釘扣件
+            if (hi && sign > 0) {
               const mx = (q1[0] + q2[0]) / 2, my = (q1[1] + q2[1]) / 2, mz = (zBot + zTop) / 2;
-              joint.tube([mx - n[0] * .015, my - n[1] * .015, mz], [mx + n[0] * .04, my + n[1] * .04, mz], .028, 5);
+              joint.tube([mx - n[0] * .01, my - n[1] * .01, mz], [mx + n[0] * .04, my + n[1] * .04, mz], .024, 6);
             }
           };
           for (const pc of SCAF.pieces) {
@@ -894,8 +1064,8 @@
                 const pIn = [p[0], p[1], y], qIn = [q[0], q[1], y];
                 if (hi) {
                   hgTex.quad(pIn, qIn, qOut, pOut, Math.max(1, Math.hypot(q[0] - p[0], q[1] - p[1]) / 1.8), 1.2);
-                  pipe(hgFr, pOut, qOut, .024); pipe(hgFr, pIn, qIn, .024); pipe(hgFr, pIn, pOut, .026);
-                  pipe(hgFr, [p[0], p[1], y - 0.75], [p[0] + n[0] * o * 0.65, p[1] + n[1] * o * 0.65, y + u * 0.65], .020);
+                  pipe(hgFr, pOut, qOut, .022); pipe(hgFr, pIn, qIn, .022); pipe(hgFr, pIn, pOut, .024);
+                  pipe(hgFr, [p[0], p[1], y - 0.75], [p[0] + n[0] * o * 0.65, p[1] + n[1] * o * 0.65, y + u * 0.65], .018);
                 } else {
                   hgFlat.quad(pIn, qIn, qOut, pOut);
                 }
@@ -904,86 +1074,81 @@
             const segs = segmentsOf(T, kTop, topZ);
             for (const sg of segs) {
               const Hh = sg.z1 - sg.z0, lifts = Math.max(1, Math.ceil(Hh / SC.lift));
-              // 底部調整座（方形厚底板 16×16cm ＋ 調整螺桿 ＋ 蝶形手把螺帽）
               if (hi) {
                 pairs.forEach(([a, b], k) => {
                   const prev = pc.closed ? (k - 1 + pairs.length) % pairs.length : Math.max(0, k - 1);
                   if (bayCut(k) && bayCut(prev)) return;
                   for (const pt of [a, b]) {
-                    jack.box([pt[0], pt[1], sg.z0], [pt[0], pt[1], sg.z0 + .03], .16, .16);
-                    jack.tube([pt[0], pt[1], sg.z0 + .03], [pt[0], pt[1], sg.z0 + .22], .020, 6);
-                    joint.box([pt[0] - .07, pt[1], sg.z0 + .14], [pt[0] + .07, pt[1], sg.z0 + .14], .03, .03);
+                    jack.box([pt[0], pt[1], sg.z0], [pt[0], pt[1], sg.z0 + .03], .15, .15);
+                    jack.tube([pt[0], pt[1], sg.z0 + .03], [pt[0], pt[1], sg.z0 + .20], .018, 6);
                   }
                 });
               }
               for (let l = 0; l < lifts; l++) {
                 const z = sg.z0 + l * SC.lift, z2 = Math.min(z + SC.lift, sg.z1), hL = z2 - z;
                 const isLastWork = (l === lifts - 1 && sg.z1 >= topZ - 0.5);
-                // 1. 門型端框單元（每步獨立門架＋插銷接頭環）
                 pairs.forEach(([a, b], k) => {
                   const prev = pc.closed ? (k - 1 + pairs.length) % pairs.length : Math.max(0, k - 1);
                   if (bayCut(k) && bayCut(prev)) return;
                   drawPortalFrame(a, b, z, z2);
                 });
-                // 2. 各跨工作踏板、踢腳板、交叉拉桿、中欄杆、內樓梯
                 for (let k = 0; k < pairs.length; k++) {
                   const k2 = next(k); if (k2 === k || bayCut(k)) continue;
                   const i1 = pairs[k][0], i2 = pairs[k2][0], o1 = pairs[k][1], o2 = pairs[k2][1], n = sd[pairs[k][2]].n;
                   const bayLen = Math.hypot(o2[0] - o1[0], o2[1] - o1[1]);
-                  // 內外水平繫桿（步底與最頂）
-                  pipe(fr, [i1[0], i1[1], z], [i2[0], i2[1], z], .018);
-                  pipe(fr, [o1[0], o1[1], z], [o2[0], o2[1], z], .018);
+                  const isStair = (bayLen > 1.1 && bayStair(k));
+                  // 內外水平繫桿
+                  pipe(fr, [i1[0], i1[1], z], [i2[0], i2[1], z], .016);
+                  pipe(fr, [o1[0], o1[1], z], [o2[0], o2[1], z], .016);
                   if (l === lifts - 1) {
                     const rg = isLastWork ? topRail : fr;
-                    pipe(rg, [i1[0], i1[1], z2], [i2[0], i2[1], z2], .020);
-                    pipe(rg, [o1[0], o1[1], z2], [o2[0], o2[1], z2], .020);
+                    pipe(rg, [i1[0], i1[1], z2], [i2[0], i2[1], z2], .019);
+                    pipe(rg, [o1[0], o1[1], z2], [o2[0], o2[1], z2], .019);
                   }
-                  // 踏板＋踢腳板（每步底版，非第 0 步起搭腳底）
-                  if (l > 0) drawPlankUnit(i1, i2, o1, o2, z, Wd);
-                  // 外側 X 型交叉拉桿（含中央樞軸扣件）
-                  drawXBrace(o1, o2, n, z, z2);
+                  // 工作踏板（若該跨為內樓梯則不鋪滿踏板，改繪 6 階水平衝孔鋼樓梯！）
+                  if (l > 0 && !isStair) drawPlankUnit(i1, i2, o1, o2, n, z, Wd, isMain);
+                  if (isStair) drawStairUnit(i1, i2, o1, o2, z, z2, l % 2 === 0);
+                  // 外側 X 型交叉拉桿
+                  drawXBrace(o1, o2, n, z, z2, 1);
                   if (hi) {
-                    // 外側中欄杆（離步底 0.90m；最頂作業層用黃色先行扶手框）
+                    // 外側中欄杆（高度 0.90m）＋下欄杆（高度 0.45m 細管，呈現參考圖 1 俐落護欄感）
                     const zm = z + hL * 0.52, rg = isLastWork ? topRail : fr;
-                    pipe(rg, [o1[0], o1[1], zm], [o2[0], o2[1], zm], .016);
-                    // 內側單斜拉桿
-                    pipe(brX, [i1[0], i1[1], l % 2 ? z + .1 : z2 - .1], [i2[0], i2[1], l % 2 ? z2 - .1 : z + .1], .011);
-                    // 上下設備：依 DWG 內樓梯位置繪製之字型斜梯＋扶手
-                    if (bayLen > 1.1 && bayStair(k)) {
-                      const s1 = lerp(i1, o1, 0.5), s2 = lerp(i2, o2, 0.5), up = (l % 2 === 0);
-                      const aS = up ? [s1[0], s1[1], z + .05] : [s2[0], s2[1], z + .05];
-                      const bS = up ? [s2[0], s2[1], z2 + .05] : [s1[0], s1[1], z2 + .05];
-                      stairG.box(aS, bS, .36, .05);
-                      pipe(topRail, [aS[0], aS[1], aS[2] + .88], [bS[0], bS[1], bS[2] + .88], .018);
-                    }
+                    pipe(rg, [o1[0], o1[1], zm], [o2[0], o2[1], zm], .015);
+                    // 內側斜拉桿（單向或 X 型，讓內外立體通透如圖 2）
+                    pipe(brX, [i1[0], i1[1], l % 2 ? z + .14 : z2 - .14], [i2[0], i2[1], l % 2 ? z2 - .14 : z + .14], .011);
                   }
                 }
-                // 壁連座（每 2 步 ≈ 3.45m、每 2 跨 ≈ 3.6m）
+                // 壁連座（對照參考圖 2：每層每 3.6m 設水平壁拉桿＋靠牆亮黃壁連座固定牌＋紅色夾頭點綴）
                 if (hi && isMain && l > 0 && l % 2 === 0) {
                   for (let k = 0; k < pairs.length; k += 2) {
                     if (bayCut(k)) continue;
                     const a = pairs[k][0], n = sd[pairs[k][2]].n;
-                    pipe(tieG, [a[0], a[1], z], [a[0] - n[0] * 0.65, a[1] - n[1] * 0.65, z], .022);
+                    const wPt = [a[0] - n[0] * 0.65, a[1] - n[1] * 0.65, z + 0.15];
+                    pipe(tieG, [a[0], a[1], z + 0.15], wPt, .018);
+                    // 靠牆亮黃壁連座錨座方牌（24×24cm）＋外架端紅色固定夾頭
+                    tieYel.box([wPt[0] - n[0] * 0.02, wPt[1] - n[1] * 0.02, wPt[2]], [wPt[0] + n[0] * 0.03, wPt[1] + n[1] * 0.03, wPt[2]], 0.24, 0.24);
+                    tieRed.box([a[0] - n[0] * 0.06, a[1] - n[1] * 0.06, z + 0.15], [a[0] + n[0] * 0.06, a[1] + n[1] * 0.06, z + 0.15], 0.09, 0.09);
                   }
                 }
               }
-              // 4F／16F 實尺三角托架＋分配鐵管＋承載木夾板平台
+              // 4F／16F 寫實多支並排鍍鋅鋼三角托架＋上方承載槽鋼平台（對照參考圖 2）
               if (sg.cant) {
                 if (SC.mode === 'plan' && isMain && SCAF.brackets) {
                   const bList = SCAF.brackets.filter(b => b[5] === T);
                   for (const b of bList) {
                     const isLong = b[4] >= 3.0, tgt = isLong ? brLong : br;
                     if (hi) drawTrussBracket(tgt, [b[0], b[1]], [b[2], b[3]], sg.z0, b[4]);
-                    else { const t1 = isLong ? .10 : .075, drop = Math.min(2.4, Math.max(1.2, b[4] * 0.55)); tgt.box([b[0], b[1], sg.z0], [b[2], b[3], sg.z0], t1, t1); tgt.box([b[2], b[3], sg.z0], [b[0], b[1], sg.z0 - drop], t1 * .8, t1 * .8) }
+                    else { const t1 = isLong ? .09 : .07, drop = Math.min(2.0, Math.max(1.0, b[4] * 0.5)); tgt.box([b[0], b[1], sg.z0], [b[2], b[3], sg.z0], t1, t1); tgt.box([b[2], b[3], sg.z0], [b[0], b[1], sg.z0 - drop], t1 * .8, t1 * .8) }
                   }
+                  // 托架上方橫向承載雙槽鋼＋承載鋼踏板面（對照參考圖 2 乾淨銀灰鋼構承載層）
                   if (hi) {
                     for (let k = 0; k < pairs.length; k++) {
                       const k2 = next(k); if (k2 === k || bayCut(k)) continue;
                       const i1 = pairs[k][0], i2 = pairs[k2][0], o1 = pairs[k][1], o2 = pairs[k2][1];
                       const m1 = lerp(i1, o1, 0.5), m2 = lerp(i2, o2, 0.5);
-                      wood.box([m1[0], m1[1], sg.z0 + .05], [m2[0], m2[1], sg.z0 + .05], Wd + .16, .05);
-                      pipe(tieG, [i1[0], i1[1], sg.z0 + .01], [i2[0], i2[1], sg.z0 + .01], .028);
-                      pipe(tieG, [o1[0], o1[1], sg.z0 + .01], [o2[0], o2[1], sg.z0 + .01], .028);
+                      tieG.box([i1[0], i1[1], sg.z0 + .04], [i2[0], i2[1], sg.z0 + .04], .07, .09);
+                      tieG.box([o1[0], o1[1], sg.z0 + .04], [o2[0], o2[1], sg.z0 + .04], .07, .09);
+                      pl.box([m1[0], m1[1], sg.z0 + .09], [m2[0], m2[1], sg.z0 + .09], Wd + .12, .04, 3, 1);
                     }
                   }
                   Q.bracket += bList.length;
@@ -996,7 +1161,7 @@
                   Q.bracket += S;
                 }
               }
-              // 防塵網
+              // 藍色防塵網
               for (let k = 0; k < pairs.length; k++) {
                 const k2 = next(k); if (k2 === k || bayCut(k)) continue;
                 const e = .08, n = sd[pairs[k][2]].n, p = pairs[k][1], q = pairs[k2][1];
@@ -1020,7 +1185,7 @@
               }
             }
           }
-          // 屋突層（R1F～PRF）：依 DWG MKMK A/B RRF 內縮核心與斜梁框架繪製獨立單元
+          // 屋突層（R1F～PRF）：依 DWG MKMK A/B RRF 內縮核心與斜梁框架繪製
           if (SC.mode === 'plan' && SCAF.roof) {
             for (const T of TS) {
               if (H[T] <= TW[T].topF) continue;
@@ -1034,15 +1199,15 @@
                 const L = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), Wd = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]);
                 const n = [(p3[0] - p0[0]) / (Wd || 1), (p3[1] - p0[1]) / (Wd || 1)];
                 rPerim += L;
-                if (hi) [p0, p1, p2, p3].forEach(q => jack.box([q[0], q[1], z0], [q[0], q[1], z0 + .03], .16, .16));
+                if (hi) [p0, p1, p2, p3].forEach(q => jack.box([q[0], q[1], z0], [q[0], q[1], z0 + .03], .15, .15));
                 for (let l = 0; l < lifts; l++) {
                   const z = z0 + l * SC.lift, z2 = Math.min(z + SC.lift, z1);
                   drawPortalFrame(p0, p3, z, z2);
                   drawPortalFrame(p1, p2, z, z2);
-                  pipe(fr, [p0[0], p0[1], z], [p1[0], p1[1], z], .018); pipe(fr, [p3[0], p3[1], z], [p2[0], p2[1], z], .018);
-                  if (l > 0) drawPlankUnit(p0, p1, p3, p2, z, Wd);
-                  drawXBrace(p3, p2, n, z, z2);
-                  if (hi && l === lifts - 1) { pipe(topRail, [p3[0], p3[1], z2], [p2[0], p2[1], z2], .020); pipe(topRail, [p3[0], p3[1], (z + z2) / 2], [p2[0], p2[1], (z + z2) / 2], .016) }
+                  pipe(fr, [p0[0], p0[1], z], [p1[0], p1[1], z], .016); pipe(fr, [p3[0], p3[1], z], [p2[0], p2[1], z], .016);
+                  if (l > 0) drawPlankUnit(p0, p1, p3, p2, n, z, Wd, false);
+                  drawXBrace(p3, p2, n, z, z2, 1);
+                  if (hi && l === lifts - 1) { pipe(topRail, [p3[0], p3[1], z2], [p2[0], p2[1], z2], .019); pipe(topRail, [p3[0], p3[1], (z + z2) / 2], [p2[0], p2[1], (z + z2) / 2], .015) }
                 }
                 if (hi) ntTex.quad([p3[0], p3[1], z0], [p2[0], p2[1], z0], [p2[0], p2[1], z1], [p3[0], p3[1], z1], Math.max(1, L / 1.829), Math.max(1, Hh / 1.725));
                 else ntFlat.quad([p3[0], p3[1], z0], [p2[0], p2[1], z0], [p2[0], p2[1], z1], [p3[0], p3[1], z1]);
@@ -1052,23 +1217,29 @@
               Q.txt.push(`${T}棟屋突 R1F～${fname(T, H[T])}　內縮落地於屋頂版　高 ${Hh.toFixed(2)} m・${lifts} 步`);
             }
           }
+          // 打包標準 glTF 2.0 PBR 模型（含內嵌防滑衝孔踏板貼圖 & 橘邊黃菱形防墜網貼圖）
+          addGlbLayer([
+            { g: fr, css: '#e2e8f0', alpha: 1, met: 0.35, rough: 0.38 },
+            { g: brX, css: '#edf2f7', alpha: 1, met: 0.38, rough: 0.32 },
+            { g: joint, css: '#8a95a3', alpha: 1, met: 0.45, rough: 0.42 },
+            { g: pl, css: '#ffffff', alpha: 1, met: 0.25, rough: 0.48, tex: hi ? 'plank' : null },
+            { g: catchNet, css: '#ffffff', alpha: 1, met: 0.0, rough: 0.75, tex: 'catchnet', alphaMode: 'MASK' },
+            { g: jack, css: '#7a8592', alpha: 1, met: 0.45, rough: 0.40 },
+            { g: tieG, css: '#7b8794', alpha: 1, met: 0.42, rough: 0.45 },
+            { g: tieYel, css: '#f5c418', alpha: 1, met: 0.05, rough: 0.55 },
+            { g: tieRed, css: '#d93829', alpha: 1, met: 0.20, rough: 0.50 },
+            { g: topRail, css: '#f2c21a', alpha: 1, met: 0.15, rough: 0.42 }
+          ], 'fr', prims, myGen);
+          addGlbLayer([
+            { g: br, css: '#7a8593', alpha: 1, met: 0.45, rough: 0.42 },
+            { g: brLong, css: '#687482', alpha: 1, met: 0.48, rough: 0.40 },
+            { g: hgFr, css: '#9c3026', alpha: 1, met: 0.35, rough: 0.45 },
+            ...(hi ? [] : [{ g: hgFlat, css: '#d94141', alpha: 0.55, met: 0.0, rough: 0.75 }])
+          ], 'sk', prims, myGen);
+          if (!hi) addGlbLayer([{ g: ntFlat, css: '#1f5fbf', alpha: 0.32, met: 0.0, rough: 0.85 }], 'nt', prims, myGen);
           prims.push(
-            ...primsOf(fr, '#c4cdd6', 1, 'fr'),
-            ...primsOf(joint, '#4e5762', 1, 'fr'),
-            ...primsOf(brX, '#dde4ec', 1, 'fr'),
-            ...primsOf(pl, '#7a8490', 1, 'fr'),
-            ...(hi ? texPrimsOf(plTex, 'plank', false, 'fr') : []),
-            ...primsOf(toe, '#e0ae1a', 1, 'fr'),
-            ...primsOf(jack, '#565f6b', 1, 'fr'),
-            ...primsOf(tieG, '#4b5563', 1, 'fr'),
-            ...primsOf(wood, '#9d7849', 1, 'fr'),
-            ...primsOf(stairG, '#b8c2cc', 1, 'fr'),
-            ...primsOf(topRail, '#f2be16', 1, 'fr'),
-            ...primsOf(br, '#d93829', 1, 'sk'),
-            ...primsOf(brLong, '#f06010', 1, 'sk'),
-            ...primsOf(hgFr, '#8e2c24', 1, 'sk'),
-            ...(hi ? texPrimsOf(hgTex, 'hedge', true, 'sk') : primsOf(hgFlat, '#d94141', .55, 'sk')),
-            ...(hi ? texPrimsOf(ntTex, 'net', true, 'nt') : primsOf(ntFlat, '#1f5fbf', .32, 'nt'))
+            ...(hi ? texPrimsOf(hgTex, 'hedge', true, 'sk') : []),
+            ...(hi ? texPrimsOf(ntTex, 'net', true, 'nt') : [])
           );
           for (const t in PAN) prims.push(panelPrim(t, PAN[t]));
           vis(); panelQty(); equip();
@@ -1085,7 +1256,7 @@
           { nm: 'B棟 內爬式 SC150-65', T: 'B', car: [1.4, 1.8, 2.5], c: SD(73.9, 32), mo: [0, 1.25], ext: false }];
         const LOAD = [[3.5, 4], [27.3, 4], [30, 3.53], [32, 3.25], [35, 2.91], [37, 2.73], [40, 2.5], [42, 2.37], [45, 2.2]];
         const loadAt = R => { for (let i = 1; i < LOAD.length; i++)if (R <= LOAD[i][0]) { const [a, b] = [LOAD[i - 1], LOAD[i]]; return a[1] + (b[1] - a[1]) * (R - a[0]) / (b[0] - a[0]) } return 2.2 };
-        let eqPrims = [], eqEnts = []; SC.eqReady = true;
+        let eqPrims = [], eqEnts = [], eqGen = 0; SC.eqReady = true;
         function mastL(g, c, w, z0, z1, ang) {
           const co = Math.cos(ang), si = Math.sin(ang), h = w / 2; const P = [[-h, -h], [h, -h], [h, h], [-h, h]].map(([a, b]) => [c[0] + a * co - b * si, c[1] + a * si + b * co]);
           P.forEach(q => g.box([q[0], q[1], z0], [q[0], q[1], z1], .14, .14));
@@ -1103,7 +1274,7 @@
           }
         }
         function equip() {
-          eqPrims.forEach(p => viewer.scene.primitives.remove(p)); eqPrims = []; eqEnts.forEach(e => viewer.entities.remove(e)); eqEnts = [];
+          const myEqGen = ++eqGen; eqPrims.forEach(p => viewer.scene.primitives.remove(p)); eqPrims = []; eqEnts.forEach(e => viewer.entities.remove(e)); eqEnts = [];
           const M = enuM(), W = (x, y, z) => Cesium.Matrix4.multiplyByPoint(M, new Cesium.Cartesian3(x, y, z), new Cesium.Cartesian3());
           const slab = T => BH[T] ? lvl(Math.min(BH[T], maxK(T))) : 0, top = Math.max(slab('A'), slab('B'));
           const lab = (p, t, col, key) => {
@@ -1129,7 +1300,7 @@
           cw.box([c[0] + dir[0] * .2 - dir[1] * 1.4, c[1] + dir[1] * .2 + dir[0] * 1.4, slew + 1.3], [c[0] + dir[0] * 1.6 - dir[1] * 1.4, c[1] + dir[1] * 1.6 + dir[0] * 1.4, slew + 1.3], 1.4, 2.0);
           const hz = Math.max(top + 3, 3); hk.box(jt, [jt[0], jt[1], hz], .04, .04); hk.box([jt[0], jt[1], hz + .3], [jt[0], jt[1], hz - .5], .5, .5);
           if (BH.B >= 4) { const tB = SD(55.2, 21.5);[-1, 1].forEach(sg => { const q = [c[0] + U[0] * sg * .9, c[1] + U[1] * sg * .9]; y.box([q[0], q[1], CR.tieZ], [tB[0] + U[0] * sg * 1.5, tB[1] + U[1] * sg * 1.5, CR.tieZ], .2, .2) }) }
-          const P = (g, col, a, key) => { eqPrims.push(...primsOf(g, col, a, key)) };
+          const P = (g, col, a, key) => { if (!g || !g.i.length) return; const bytes = buildGlbBytes([{ g, css: col, alpha: a, met: 0.4, rough: 0.5 }]); if (!bytes) return; const url = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' })); Cesium.Model.fromGltfAsync({ url, modelMatrix: enuM(), upAxis: Cesium.Axis.Y, forwardAxis: Cesium.Axis.X }).then(m => { setTimeout(() => URL.revokeObjectURL(url), 5000); if (myEqGen !== eqGen) { try { m.destroy(); } catch (e) { } return; } m._k = key; viewer.scene.primitives.add(m); eqPrims.push(m); vis(); }); };
           P(y, '#f2c200', 1, 'cr'); P(cw, '#5d6670', 1, 'cr'); P(k, '#222222', 1, 'cr'); P(hk, '#333333', 1, 'cr');
           const t = loadAt(R); lab(W(c[0], c[1], tip + 2.5), `塔吊 JTL120F8・塔尖 GL+${tip.toFixed(1)} m`, '#9a7b00', 'cr');
           lab(W(jt[0], jt[1], hz + 2), `R ${R.toFixed(1)} m・${t.toFixed(2)} t`, '#c8102e', 'cr');
