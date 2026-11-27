@@ -375,7 +375,7 @@
     <label class="l"><input type="checkbox" id="cSite" checked>圍籬・洗車台・出入口</label>
     <label class="l"><input type="checkbox" id="cOff" checked>工務所・安衛工棚・警衛室</label>
     <label class="l"><input type="checkbox" id="cClip" checked>挖除舊飯店實景</label>
-    <label class="l"><input type="checkbox" id="cClipN" checked>挖除北側已拆建物（僑園北棟）</label>
+    <label class="l"><input type="checkbox" id="cClipN" checked>北側空地現況（草皮＋圍籬）</label>
     <h2>建物樓層（結構進度）</h2>
     <div style="font-size:14px">A棟 結構完成至 <b id="bAv"></b></div>
     <input type="range" id="bA" min="0" step="1">
@@ -538,12 +538,12 @@
         viewer.scene.primitives.add(model);
         try { model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(1.0, 0.3) } catch (e) { }
         const ground = viewer.entities.add({ polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(siteLL().flat()), height: baseH, material: Cesium.Color.fromCssColorString('#8d9196') } });
-        const groundN = viewer.entities.add({ polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(northLotLL().flat()), height: baseH, material: Cesium.Color.fromCssColorString('#7b8086') } });
+        const groundN = viewer.entities.add({ polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(northLotLL().flat()), height: baseH - 0.04, material: Cesium.Color.fromCssColorString('#567340') } });
         const linePos = l => Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.map(sh).flatMap(p => [p[0], p[1], baseH + dH + 0.25]));
         const lines = META.lines.map(l => viewer.entities.add({ name: l.name, polyline: { positions: linePos(l), width: l.w, material: Cesium.Color.fromCssColorString(l.color), depthFailMaterial: Cesium.Color.fromCssColorString(l.color).withAlpha(0.35) } }));
         const tl = META.labels.map(L => ({ L, e: viewer.entities.add({ position: Cesium.Cartesian3.fromDegrees(...sh(L.p), baseH + L.h), label: { text: L.t, font: 'bold 15px sans-serif', fillColor: Cesium.Color.WHITE, showBackground: true, backgroundColor: Cesium.Color.fromCssColorString('#1b2128cc'), disableDepthTestDistance: 1e9 } }) }));
         const hs = document.getElementById('hs'), hv = document.getElementById('hv');
-        const upd = () => { dH = +hs.value; hv.textContent = (dH >= 0 ? '+' : '') + dH.toFixed(1) + ' m'; model.modelMatrix = mm(); ground.polygon.height = baseH + dH; groundN.polygon.height = baseH + dH; lines.forEach((e, i) => e.polyline.positions = linePos(META.lines[i])) };
+        const upd = () => { dH = +hs.value; hv.textContent = (dH >= 0 ? '+' : '') + dH.toFixed(1) + ' m'; model.modelMatrix = mm(); ground.polygon.height = baseH + dH; groundN.polygon.height = baseH + dH - 0.04; lines.forEach((e, i) => e.polyline.positions = linePos(META.lines[i])) };
         hs.oninput = upd; upd();
         await new Promise(r => { if (model.ready) r(); else model.readyEvent.addEventListener(r) });
         const show = (n, v) => { try { const nd = model.getNode(n); if (nd) nd.show = v } catch (e) { } };
@@ -700,6 +700,25 @@
               x.beginPath(); x.moveTo(i, 220); x.lineTo(i + 14, 220); x.lineTo(i + 26, 198); x.lineTo(i + 12, 198); x.closePath(); x.fill();
             }
             x.fillStyle = '#9aa3ad'; x.fillRect(0, 220, 256, 36);
+          } else if (kind === 'grass') {
+            // 空地自然草皮紋理（深淺綠草叢＋微黃枯草＋些許泥土斑駁，避免死板螢光綠）
+            x.fillStyle = '#5a7842'; x.fillRect(0, 0, 256, 256);
+            let seed = 42;
+            const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+            for (let k = 0; k < 420; k++) {
+              const cx = rnd() * 256, cy = rnd() * 256, r = 4 + rnd() * 14;
+              const cols = ['#4c6936', '#67854b', '#738f52', '#7d7a4a', '#466131'];
+              x.fillStyle = cols[Math.floor(rnd() * cols.length)];
+              x.globalAlpha = 0.35 + rnd() * 0.35;
+              x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fill();
+            }
+            x.globalAlpha = 0.55;
+            for (let k = 0; k < 1400; k++) {
+              const cx = rnd() * 256, cy = rnd() * 256;
+              x.fillStyle = rnd() > 0.25 ? '#3e582b' : '#8c8a56';
+              x.fillRect(cx, cy, 2, 4);
+            }
+            x.globalAlpha = 1;
           } else if (kind === 'grating') {
             // 洗車台防滑鍍鋅鋼格柵（深槽底＋交叉亮銀格柵條）
             x.fillStyle = '#2a333d'; x.fillRect(0, 0, 256, 256);
@@ -1593,7 +1612,29 @@
             addLbl(Wp(...SD((s0 + s1) / 2, (d0 + d1) / 2), 2.8), '臨時電總盤', '#475569', 'off');
           }
 
-          // 打包成兩個標準 glTF 2.0 (.glb) 圖層（'site'=圍籬+洗車台+出入口；'off'=工務所+工棚+警衛室）
+          // === 5. 北側已拆除空地現況（長草皮＋四周甲種圍籬，隨「北側空地現況」開關連動） ===
+          const nGrass = new G(true), nFence = new G(true), nPost = new G();
+          {
+            // 自然草皮地面（s=89.13..135.0, d=-0.4..52.8）
+            const c0 = SD(89.13, -0.4), c1 = SD(135.0, -0.4), c2 = SD(135.0, 52.8), c3 = SD(89.13, 52.8);
+            nGrass.quad([c0[0], c0[1], 0.02], [c1[0], c1[1], 0.02], [c2[0], c2[1], 0.02], [c3[0], c3[1], 0.02], 9, 10);
+            // 四周 2.4m 甲種鋼板圍籬（惠中路側、市政北二路側、背側；南側緊鄰 BH13 北界）
+            const addNF = (s1, d1, s2, d2) => {
+              const a = SD(s1, d1), b = SD(s2, d2), L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+              if (L < 0.1) return;
+              nFence.box([a[0], a[1], 1.2], [b[0], b[1], 1.2], 0.10, 2.4, Math.max(1, L / 2.4), 1, 1);
+              const nP = Math.max(2, Math.ceil(L / 2.4) + 1);
+              for (let k = 0; k < nP; k++) {
+                const f = k / (nP - 1), px = a[0] + (b[0] - a[0]) * f, py = a[1] + (b[1] - a[1]) * f;
+                nPost.box([px, py, 0], [px, py, 2.48], 0.11, 0.11);
+              }
+            };
+            addNF(89.13, 0.20, 134.80, 0.20);   // 臨惠中路側
+            addNF(134.80, 0.20, 134.80, 52.50); // 臨市政北二路側
+            addNF(134.80, 52.50, 89.13, 52.50); // 背側鄰房
+            addNF(89.13, 52.50, 89.13, 47.52);  // 銜接 BH13 背界小段
+          }
+                    // 打包成兩個標準 glTF 2.0 (.glb) 圖層（'site'=圍籬+洗車台+出入口；'off'=工務所+工棚+警衛室）
           const loadSiteGlb = (parts, key) => {
             const bytes = buildGlbBytes(parts);
             if (!bytes) return;
@@ -1628,9 +1669,14 @@
             { g: offBlue, css: '#2563eb', alpha: 1, met: 0.12, rough: 0.55 },
             { g: offGray, css: '#64748b', alpha: 1, met: 0.40, rough: 0.50 }
           ], 'off');
+          loadSiteGlb([
+            { g: nGrass, css: '#ffffff', alpha: 1, met: 0.0, rough: 0.92, tex: 'grass' },
+            { g: nFence, css: '#ffffff', alpha: 1, met: 0.20, rough: 0.55, tex: 'fence_steel' },
+            { g: nPost, css: '#cbd5e1', alpha: 1, met: 0.45, rough: 0.42 }
+          ], 'clipN');
           vis();
         }
-        function vis() { const m = { fr: el('cFr').checked, nt: el('cNet').checked, sk: el('cSkt').checked, lb: el('cLbl').checked, cr: el('cCr').checked, el: el('cEl').checked, rad: el('cRad').checked && el('cCr').checked, site: el('cSite').checked, off: el('cOff').checked }; prims.forEach(p => { if (p) p.show = m[p._k] }); if (SC.eqReady) { eqPrims.forEach(p => p.show = m[p._k]); eqEnts.forEach(e => e.show = m[e._k]); sitePrims.forEach(p => p.show = m[p._k]); siteEnts.forEach(e => e.show = m[e._k]) } const lb = el('cLbl').checked; lbls.forEach(e => e.show = lb) }
+        function vis() { const m = { fr: el('cFr').checked, nt: el('cNet').checked, sk: el('cSkt').checked, lb: el('cLbl').checked, cr: el('cCr').checked, el: el('cEl').checked, rad: el('cRad').checked && el('cCr').checked, site: el('cSite').checked, off: el('cOff').checked, clipN: el('cClipN').checked }; prims.forEach(p => { if (p) p.show = m[p._k] }); if (SC.eqReady) { eqPrims.forEach(p => p.show = m[p._k]); eqEnts.forEach(e => e.show = m[e._k]); sitePrims.forEach(p => p.show = m[p._k]); siteEnts.forEach(e => e.show = m[e._k]) } const lb = el('cLbl').checked; lbls.forEach(e => e.show = lb) }
         const nf = (x, d = 0) => x.toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
         function panelQty() {
           TS.forEach(T => el('h' + T + 'v').textContent = H[T] ? fname(T, H[T]) : '未搭設');
@@ -1656,7 +1702,7 @@
         build(); buildSiteFacilities();
         hs.addEventListener('input', () => { later(); buildSiteFacilities(); });
         document.getElementById('cLin').onchange = e => lines.forEach(l => l.show = e.target.checked);
-        const updClip = () => { mkClip(); ground.show = document.getElementById('cClip').checked; groundN.show = document.getElementById('cClipN').checked; };
+        const updClip = () => { mkClip(); ground.show = document.getElementById('cClip').checked; groundN.show = document.getElementById('cClipN').checked; vis(); };
         document.getElementById('cClip').onchange = updClip;
         document.getElementById('cClipN').onchange = updClip;
         // ---------- 位置校正 ----------
