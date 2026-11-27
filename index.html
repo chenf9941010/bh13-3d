@@ -372,6 +372,8 @@
     <div style="margin:2px 0 4px 26px">牌子 <span class="seg" id="sLb"><button data-v="1" class="on">每層</button><button
           data-v="2">隔層（奇數層）</button></span></div>
     <label class="l"><input type="checkbox" id="cLin" checked>地界／建築線／落物曲線</label>
+    <label class="l"><input type="checkbox" id="cSite" checked>圍籬・洗車台・出入口</label>
+    <label class="l"><input type="checkbox" id="cOff" checked>工務所・安衛工棚・警衛室</label>
     <label class="l"><input type="checkbox" id="cClip" checked>挖除舊飯店實景</label>
     <h2>建物樓層（結構進度）</h2>
     <div style="font-size:14px">A棟 結構完成至 <b id="bAv"></b></div>
@@ -572,8 +574,8 @@
             const wl = Math.hypot(wx, wy, wz) || 1; wx /= wl; wy /= wl; wz /= wl;
             return { u, v: [vx, vy, vz], w: [wx, wy, wz], L };
           }
-          // 24 頂點銳利方塊（支援可選 UV 貼圖，用於防滑衝孔鋼踏板、樓梯踏階、壁連座、角鋼）
-          box(a, b, ty, tz, uRep = 1, vRep = 1) {
+          // 24 頂點銳利方塊（支援可選 UV 貼圖，sideV 控制側面垂直 UV 範圍：踏板薄邊用 0.15、圍籬全高用 1）
+          box(a, b, ty, tz, uRep = 1, vRep = 1, sideV = 0.15) {
             const B = this._basis(a, b); if (!B) return;
             const { u, v, w } = B, hy = ty / 2, hz = tz / 2;
             const V = [v[0] * hy, v[1] * hy, v[2] * hy], W = [w[0] * hz, w[1] * hz, w[2] * hz];
@@ -581,10 +583,10 @@
             const p0 = pt(a, -1, -1), p1 = pt(a, -1, 1), p2 = pt(a, 1, -1), p3 = pt(a, 1, 1);
             const p4 = pt(b, -1, -1), p5 = pt(b, -1, 1), p6 = pt(b, 1, -1), p7 = pt(b, 1, 1);
             const faces = [
-              [p0, p1, p3, p2, [-u[0], -u[1], -u[2]], [0, 0, 0, 1, 1, 1, 1, 0]],
-              [p4, p6, p7, p5, u, [0, 0, 1, 0, 1, 1, 0, 1]],
-              [p0, p4, p5, p1, [-v[0], -v[1], -v[2]], [0, 0, uRep, 0, uRep, 0.15, 0, 0.15]],
-              [p2, p3, p7, p6, v, [0, 0, 0, 0.15, uRep, 0.15, uRep, 0]],
+              [p0, p1, p3, p2, [-u[0], -u[1], -u[2]], [0, 0, 0, sideV, 1, sideV, 1, 0]],
+              [p4, p6, p7, p5, u, [0, 0, 1, 0, 1, sideV, 0, sideV]],
+              [p0, p4, p5, p1, [-v[0], -v[1], -v[2]], [0, 0, uRep, 0, uRep, sideV, 0, sideV]],
+              [p2, p3, p7, p6, v, [0, 0, 0, sideV, uRep, sideV, uRep, 0]],
               [p0, p2, p6, p4, [-w[0], -w[1], -w[2]], [0, 0, 0, vRep, uRep, vRep, uRep, 0]],
               [p1, p5, p7, p3, w, [0, 0, uRep, 0, uRep, vRep, 0, vRep]]
             ];
@@ -642,6 +644,53 @@
                 x.fillStyle = '#eef4fa'; x.beginPath(); x.arc(col - 1.5, r - 1.5, 2.5, 0, Math.PI * 2); x.fill();
               }
             }
+          } else if (kind === 'fence_green') {
+            // 惠中路側綠美化安全圍籬（下緣防溢座＋黃黑警示帶＋植生綠牆格框＋上緣白邊）
+            x.fillStyle = '#e8edf2'; x.fillRect(0, 0, 256, 256);
+            // 植生牆深淺綠葉格紋（中間 68%）
+            x.fillStyle = '#2d6a36'; x.fillRect(0, 24, 256, 174);
+            for (let r = 28; r < 194; r += 16) {
+              for (let col = 4; col < 252; col += 16) {
+                x.fillStyle = ((r + col) / 16) % 3 === 0 ? '#3f8c46' : (((r + col) / 16) % 2 === 0 ? '#23592b' : '#4fa34d');
+                x.fillRect(col, r, 13, 13);
+              }
+            }
+            // 圍籬立柱分隔線＋格框線
+            x.strokeStyle = '#c8d2dc'; x.lineWidth = 4; x.strokeRect(2, 24, 252, 174);
+            // 黃黑安全警示斜條帶
+            x.fillStyle = '#f2c21a'; x.fillRect(0, 198, 256, 24);
+            x.fillStyle = '#1d2228';
+            for (let i = -32; i < 288; i += 32) {
+              x.beginPath(); x.moveTo(i, 222); x.lineTo(i + 14, 222); x.lineTo(i + 26, 198); x.lineTo(i + 12, 198); x.closePath(); x.fill();
+            }
+            // 底部混凝土防溢座
+            x.fillStyle = '#aeb6bf'; x.fillRect(0, 222, 256, 34);
+          } else if (kind === 'fence_steel') {
+            // 甲種烤漆鋼板圍籬（白灰直條浪板＋黃黑安全斜紋帶＋混凝土防溢座）
+            x.fillStyle = '#e3e8ee'; x.fillRect(0, 0, 256, 256);
+            for (let col = 0; col < 256; col += 16) {
+              x.fillStyle = '#cfd7e0'; x.fillRect(col, 14, 6, 184);
+              x.fillStyle = '#f2f5f8'; x.fillRect(col + 6, 14, 4, 184);
+            }
+            x.fillStyle = '#3b6ea5'; x.fillRect(0, 14, 256, 14); // 頂緣藍色企業飾條
+            x.fillStyle = '#f2c21a'; x.fillRect(0, 198, 256, 22);
+            x.fillStyle = '#1d2228';
+            for (let i = -32; i < 288; i += 32) {
+              x.beginPath(); x.moveTo(i, 220); x.lineTo(i + 14, 220); x.lineTo(i + 26, 198); x.lineTo(i + 12, 198); x.closePath(); x.fill();
+            }
+            x.fillStyle = '#9aa3ad'; x.fillRect(0, 220, 256, 36);
+          } else if (kind === 'grating') {
+            // 洗車台防滑鍍鋅鋼格柵（深槽底＋交叉亮銀格柵條）
+            x.fillStyle = '#2a333d'; x.fillRect(0, 0, 256, 256);
+            x.strokeStyle = '#b9c4cf'; x.lineWidth = 4;
+            for (let i = 0; i <= 256; i += 16) {
+              x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 256); x.stroke();
+            }
+            x.strokeStyle = '#8b97a4'; x.lineWidth = 2;
+            for (let j = 0; j <= 256; j += 32) {
+              x.beginPath(); x.moveTo(0, j); x.lineTo(256, j); x.stroke();
+            }
+            x.strokeStyle = '#f2be1a'; x.lineWidth = 10; x.strokeRect(5, 5, 246, 246);
           } else if (kind === 'catchnet') {
             // 橘邊黃菱形格網長條防墜網（完全還原參考圖：上下橘色強化邊繩＋透明底亮黃菱形網格）
             x.clearRect(0, 0, 256, 256);
@@ -1326,7 +1375,241 @@
           vis()
         }
         ['crH', 'crR'].forEach(id => el(id).addEventListener('input', () => { clearTimeout(SC.eqT); SC.eqT = setTimeout(equip, 60) }));
-        function vis() { const m = { fr: el('cFr').checked, nt: el('cNet').checked, sk: el('cSkt').checked, lb: el('cLbl').checked, cr: el('cCr').checked, el: el('cEl').checked, rad: el('cRad').checked && el('cCr').checked }; prims.forEach(p => { if (p) p.show = m[p._k] }); if (SC.eqReady) { eqPrims.forEach(p => p.show = m[p._k]); eqEnts.forEach(e => e.show = m[e._k]) } const lb = el('cLbl').checked; lbls.forEach(e => e.show = lb) }
+        // ---------- 圍籬・洗車台・出入口・工務所（依「工務所及洗車台及圍籬.dwg」實尺座標建置，誤差 < 1cm） ----------
+        let sitePrims = [], siteEnts = [], siteGen = 0;
+        function buildSiteFacilities() {
+          const mySiteGen = ++siteGen;
+          sitePrims.forEach(p => viewer.scene.primitives.remove(p)); sitePrims = [];
+          siteEnts.forEach(e => viewer.entities.remove(e)); siteEnts = [];
+          const M = enuM();
+          const Wp = (x, y, z) => Cesium.Matrix4.multiplyByPoint(M, new Cesium.Cartesian3(x, y, z), new Cesium.Cartesian3());
+          const addLbl = (p, text, bg, key) => {
+            const e = viewer.entities.add({
+              position: p,
+              label: {
+                text, font: 'bold 12px "Noto Sans TC",sans-serif', fillColor: Cesium.Color.WHITE,
+                showBackground: true, backgroundColor: Cesium.Color.fromCssColorString(bg).withAlpha(.88),
+                backgroundPadding: new Cesium.Cartesian2(5, 3), disableDepthTestDistance: 1e9,
+                scaleByDistance: new Cesium.NearFarScalar(35, 1, 350, .5),
+                distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 450)
+              }
+            });
+            e._k = key; siteEnts.push(e);
+          };
+          // 座標基準：SD(s, d) 與 DWG 建築線(89.13m)×地界深度(47.72m) 精準吻合（s 沿惠中路 0→89.13m，d 垂直惠中路往基地內 0→47.72m）
+          const fGreen = new G(true), fSteel = new G(true), fPost = new G(), fGate = new G(), fWarn = new G(), fRed = new G();
+          const wGrate = new G(true), wSplash = new G(), wSteel = new G(), wPool = new G(), wWater = new G();
+          const offBody = new G(), offRoof = new G(), offWin = new G(), offBlue = new G(), offGray = new G();
+
+          // 工具：沿兩點畫一段高度 H 的圍籬（含立柱每隔 2.4m）
+          const addFenceSeg = (gPanel, s1, d1, s2, d2, H = 2.4, withCanopy = false) => {
+            const a = SD(s1, d1), b = SD(s2, d2), L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            if (L < 0.1) return;
+            gPanel.box([a[0], a[1], H / 2], [b[0], b[1], H / 2], 0.10, H, Math.max(1, L / 2.4), 1, 1);
+            const nP = Math.max(2, Math.ceil(L / 2.4) + 1);
+            for (let k = 0; k < nP; k++) {
+              const f = k / (nP - 1), px = a[0] + (b[0] - a[0]) * f, py = a[1] + (b[1] - a[1]) * f;
+              fPost.box([px, py, 0], [px, py, H + 0.08], 0.11, 0.11);
+            }
+            // 安全走廊雨遮（惠中路側人行道上方 2.4m 處往外微斜挑出 1.2m）
+            if (withCanopy) {
+              const aOut = SD(s1, d1 - 1.25), bOut = SD(s2, d2 - 1.25);
+              const ma = [(a[0] + aOut[0]) / 2, (a[1] + aOut[1]) / 2], mb = [(b[0] + bOut[0]) / 2, (b[1] + bOut[1]) / 2];
+              fPost.box([ma[0], ma[1], H + 0.08], [mb[0], mb[1], H + 0.08], 1.35, 0.06);
+              // 外側細支柱（每隔 4.8m 落地於人行道側，構成真實工地安全走廊）
+              const nC = Math.max(2, Math.ceil(L / 4.8) + 1);
+              for (let k = 0; k < nC; k++) {
+                const f = k / (nC - 1), px = aOut[0] + (bOut[0] - aOut[0]) * f, py = aOut[1] + (bOut[1] - aOut[1]) * f;
+                fPost.tube([px, py, 0], [px, py, H + 0.08], 0.035, 6);
+              }
+            }
+          };
+
+          // === 1. 四周甲種安全圍籬（依 DWG 精準分段與開口） ===
+          // (A) 惠中路建築線側（d=0.20m，開兩座車道大門＋兩座人員小門）
+          addFenceSeg(fSteel, 0.00, 0.20, 2.00, 0.20, 2.4, false);           // 南端收頭
+          // [s=2.00..14.00] 南側 12m 車道大門（摺疊門）
+          addFenceSeg(fSteel, 14.00, 0.20, 14.70, 0.20, 2.4, false);         // 大門與小門間
+          // [s=14.70..15.58] 警衛室旁人員出入口（寬 0.88m）
+          addFenceSeg(fGreen, 15.58, 0.20, 35.86, 0.20, 2.4, true);          // 綠美化圍籬＋安全走廊（警衛室／工棚／廁所前）
+          // [s=35.86..36.74] 工務所人員出入口（寬 0.88m）
+          addFenceSeg(fGreen, 36.74, 0.20, 75.91, 0.20, 2.4, true);          // 綠美化圍籬＋安全走廊（工務所前～北門）
+          // [s=75.91..84.91] 北側 9m 車道大門（雙片橫拉門 6m+3m）
+          addFenceSeg(fSteel, 84.91, 0.20, 88.93, 0.20, 2.4, false);         // 北端收頭
+          // (B) 南側（涮屋馬側）、背側鄰房、北側全封閉甲種圍籬
+          addFenceSeg(fSteel, 0.20, 0.20, -0.30, 47.52, 2.4, false);
+          addFenceSeg(fSteel, -0.30, 47.52, 88.62, 47.52, 2.4, false);
+          addFenceSeg(fSteel, 88.62, 47.52, 88.93, 0.20, 2.4, false);
+
+          // === 2. 出入口大門與人員小門（含門柱、摺疊門／橫拉門片、出車警示燈、車道標線） ===
+          const addGatePost = (s, d, withLight = true) => {
+            const p = SD(s, d);
+            fWarn.box([p[0], p[1], 0], [p[0], p[1], 2.75], 0.24, 0.24);
+            if (withLight) {
+              // 頂部紅色出車警示燈（對應 DWG「出車警示燈」）
+              fPost.tube([p[0], p[1], 2.75], [p[0], p[1], 3.15], 0.03, 6);
+              fRed.box([p[0], p[1], 3.15], [p[0], p[1], 3.42], 0.22, 0.22);
+            }
+          };
+          // (A) 南側 12m 摺疊大門（s=2.00..14.00m）：門柱＋左右收摺之字門片（開啟通行狀）＋入口警示線
+          addGatePost(2.00, 0.20, true); addGatePost(14.00, 0.20, true);
+          for (const side of [0, 1]) {
+            const sBase = side === 0 ? 2.15 : 13.85, dir = side === 0 ? 1 : -1;
+            for (let leaf = 0; leaf < 3; leaf++) {
+              const p1 = SD(sBase + dir * leaf * 0.42, 0.35 + (leaf % 2) * 0.75);
+              const p2 = SD(sBase + dir * (leaf + 1) * 0.42, 0.35 + ((leaf + 1) % 2) * 0.75);
+              fGate.box([p1[0], p1[1], 1.15], [p2[0], p2[1], 1.15], 0.07, 2.15);
+            }
+          }
+          // 入口地面黃黑導引邊線（12m 寬）
+          { const a = SD(2.00, 0.20), b = SD(14.00, 0.20); fWarn.box([a[0], a[1], 0.03], [b[0], b[1], 0.03], 0.22, 0.03); }
+          addLbl(Wp(...SD(8.00, 0.20), 4.8), '南側出入口（12m 摺疊門）', '#c2410c', 'site');
+
+          // (B) 北側 9m 橫拉門（分兩片 6m＋3m，s=75.91..84.91m）：門柱＋地面滑軌＋半開門片＋出車警示燈
+          addGatePost(75.91, 0.20, true); addGatePost(84.91, 0.20, true);
+          { const r1 = SD(73.0, 0.36), r2 = SD(87.8, 0.36); fPost.box([r1[0], r1[1], 0.03], [r2[0], r2[1], 0.03], 0.10, 0.05); }
+          // 6m 主拉門（往左拉開停在 71.2..77.2m）＋ 3m 副拉門（往右拉開停在 83.8..86.8m）
+          { const a = SD(71.2, 0.38), b = SD(77.2, 0.38); fGate.box([a[0], a[1], 1.15], [b[0], b[1], 1.15], 0.08, 2.2); }
+          { const a = SD(83.8, 0.38), b = SD(86.8, 0.38); fGate.box([a[0], a[1], 1.15], [b[0], b[1], 1.15], 0.08, 2.2); }
+          { const a = SD(75.91, 0.20), b = SD(84.91, 0.20); fWarn.box([a[0], a[1], 0.03], [b[0], b[1], 0.03], 0.22, 0.03); }
+          addLbl(Wp(...SD(80.41, 0.20), 4.8), '北側出入口（9m 橫拉門 6+3m）', '#c2410c', 'site');
+
+          // (C) 兩處 0.88m 人行出入口小門（警衛室旁 s=14.70..15.58m、工務所旁 s=35.86..36.74m）
+          for (const [s0, s1, nm] of [[14.70, 15.58, '人行出入口（警衛室旁）'], [35.86, 36.74, '人行出入口（工務所旁）']]) {
+            const p0 = SD(s0, 0.20), p1 = SD(s1, 0.20);
+            fWarn.box([p0[0], p0[1], 0], [p0[0], p0[1], 2.45], 0.14, 0.14);
+            fWarn.box([p1[0], p1[1], 0], [p1[0], p1[1], 2.45], 0.14, 0.14);
+            fWarn.box([p0[0], p0[1], 2.38], [p1[0], p1[1], 2.38], 0.14, 0.14);
+            // 小門門扇微開 35°
+            const pOpen = SD(s1 - 0.12, 0.92);
+            fGate.box([p1[0], p1[1], 1.10], [pOpen[0], pOpen[1], 1.10], 0.06, 2.15);
+            addLbl(Wp(...SD((s0 + s1) / 2, 0.20), 3.1), nm, '#0f766e', 'site');
+          }
+
+          // === 3. 兩座工地洗車台（實尺 6.00m × 4.03m，含鋼格柵車道、兩側水幕擋水屏、噴水管架、沉澱池） ===
+          const addWashBay = (s0, s1, d0, d1, label) => {
+            const sm = (s0 + s1) / 2, dm = (d0 + d1) / 2, W = s1 - s0, L = d1 - d0;
+            // 鋼格柵洗車盤面（6.0m × 4.0m，微高出地面 14cm 呈現洗車台台座＋內嵌防滑格柵貼圖）
+            const cA = SD(sm, d0), cB = SD(sm, d1);
+            wGrate.box([cA[0], cA[1], 0.08], [cB[0], cB[1], 0.08], W, 0.16, 4, 3);
+            // 前後鋼板引道斜坡（長 0.65m）
+            for (const [da, db] of [[d0 - 0.55, d0], [d1, d1 + 0.55]]) {
+              const rA = SD(sm, da), rB = SD(sm, db);
+              wSteel.box([rA[0], rA[1], 0.04], [rB[0], rB[1], 0.04], W - 0.2, 0.08);
+            }
+            // 左右兩側防濺擋水屏（高 1.85m 鍍鋅鋼架＋半透明藍擋水板＋高壓噴水龍門管）
+            for (const sx of [s0 - 0.08, s1 + 0.08]) {
+              const p1 = SD(sx, d0 + 0.15), p2 = SD(sx, d1 - 0.15);
+              wSplash.box([p1[0], p1[1], 1.02], [p2[0], p2[1], 1.02], 0.06, 1.75);
+              for (let k = 0; k <= 3; k++) {
+                const dk = d0 + 0.15 + (L - 0.30) * k / 3, pk = SD(sx, dk);
+                wSteel.tube([pk[0], pk[1], 0], [pk[0], pk[1], 1.98], 0.035, 6);
+              }
+              wSteel.tube([p1[0], p1[1], 1.95], [p2[0], p2[1], 1.95], 0.03, 6);
+              // 噴水支管（高 0.55m 與 1.15m）
+              const inSign = sx < sm ? 1 : -1;
+              const sp1 = SD(sx + inSign * 0.14, d0 + 0.3), sp2 = SD(sx + inSign * 0.14, d1 - 0.3);
+              fWarn.tube([sp1[0], sp1[1], 0.55], [sp2[0], sp2[1], 0.55], 0.022, 6);
+              fWarn.tube([sp1[0], sp1[1], 1.15], [sp2[0], sp2[1], 1.15], 0.022, 6);
+            }
+            // 四角防撞黃色護欄柱
+            for (const sx of [s0 - 0.22, s1 + 0.22]) for (const dx of [d0 - 0.15, d1 + 0.15]) {
+              const pk = SD(sx, dx);
+              fWarn.tube([pk[0], pk[1], 0], [pk[0], pk[1], 1.1], 0.055, 6);
+            }
+            addLbl(Wp(...SD(sm, dm), 2.6), label, '#0369a1', 'site');
+          };
+          addWashBay(4.72, 10.72, 0.79, 4.82, '南側洗車台（6×4m）');
+          addWashBay(77.47, 83.47, 0.69, 4.72, '北側洗車台（6×4m）');
+          // 北側洗車台旁沉澱池（2.0m × 1.0m，s=85.53..87.53, d=0.78..1.78）
+          {
+            const a = SD(85.53, 1.28), b = SD(87.53, 1.28);
+            wPool.box([a[0], a[1], 0.18], [b[0], b[1], 0.18], 1.05, 0.36);
+            wWater.box([a[0], a[1], 0.37], [b[0], b[1], 0.37], 0.85, 0.04);
+            addLbl(Wp(...SD(86.53, 1.28), 1.5), '沉澱池（2×1m）', '#0e7490', 'site');
+          }
+
+          // === 4. 工務所・安衛工棚・警衛室・臨時廁所・臨時電總盤（依 DWG 實尺配置） ===
+          const addBoxSD = (g, s0, s1, d0, d1, z0, z1) => {
+            const a = SD(s0, (d0 + d1) / 2), b = SD(s1, (d0 + d1) / 2);
+            g.box([a[0], a[1], (z0 + z1) / 2], [b[0], b[1], (z0 + z1) / 2], Math.abs(d1 - d0), z1 - z0);
+          };
+          // (A) 警衛室（1.2m × 1.2m × 2.6m，s=15.85..17.05, d=0.43..1.63）
+          addBoxSD(offBody, 15.85, 17.05, 0.43, 1.63, 0, 2.55);
+          addBoxSD(offRoof, 15.70, 17.20, 0.30, 1.76, 2.55, 2.72);
+          addBoxSD(offWin, 15.98, 16.92, 0.39, 1.67, 1.15, 2.10);
+          addLbl(Wp(...SD(16.45, 1.03), 3.3), '警衛室', '#1e40af', 'off');
+
+          // (B) 安衛工棚（9.8m × 3.0m × 3.0m，s=17.05..26.85, d=0.43..3.43，鋼構柱＋藍灰斜頂雨遮）
+          addBoxSD(offRoof, 16.95, 26.95, 0.35, 3.55, 2.95, 3.12);
+          for (const sx of [17.15, 20.35, 23.55, 26.75]) for (const dx of [0.55, 3.35]) {
+            const pk = SD(sx, dx);
+            offGray.box([pk[0], pk[1], 0], [pk[0], pk[1], 2.95], 0.12, 0.12);
+          }
+          addBoxSD(offBlue, 17.15, 26.75, 0.48, 0.56, 0.8, 2.5); // 背面安衛宣導看板牆
+          addLbl(Wp(...SD(21.95, 1.93), 3.7), '安衛工棚（9.8×3m）', '#1e40af', 'off');
+
+          // (C) 臨時廁所（4.5m × 1.5m × 2.5m，s=28.21..32.71, d=0.25..1.75）
+          addBoxSD(offBlue, 28.21, 32.71, 0.25, 1.75, 0, 2.45);
+          addBoxSD(offRoof, 28.10, 32.82, 0.18, 1.82, 2.45, 2.58);
+          addLbl(Wp(...SD(30.46, 1.00), 3.2), '臨時廁所（4.5×1.5m）', '#1e40af', 'off');
+
+          // (D) 工務所 3K*8K（兩層，14.56m × 5.46m × 6.0m，s=36.78..51.34, d=0.20..5.66）
+          addBoxSD(offBody, 36.78, 51.34, 0.20, 5.66, 0, 5.85);
+          addBoxSD(offRoof, 36.58, 51.54, 0.05, 5.85, 5.85, 6.12);
+          addBoxSD(offBlue, 36.74, 51.38, 0.16, 5.70, 2.86, 3.04); // 一二樓分隔飾帶
+          // 一二樓窗戶列（面對工區內側與惠中路側）
+          for (let w = 0; w < 6; w++) {
+            const ws0 = 37.6 + w * 2.25, ws1 = ws0 + 1.35;
+            for (const wz0 of [1.05, 4.00]) addBoxSD(offWin, ws0, ws1, 0.15, 5.71, wz0, wz0 + 1.15);
+          }
+          addLbl(Wp(...SD(44.06, 2.93), 6.9), '工務所 3K×8K（兩層）', '#1d4ed8', 'off');
+
+          // (E) 兩處臨時電總盤（南端 s=0..1.17, d=1.40..3.70；北端 s=87.76..88.93, d=1.91..4.21）
+          for (const [s0, s1, d0, d1] of [[0.0, 1.17, 1.40, 3.70], [87.76, 88.93, 1.91, 4.21]]) {
+            addBoxSD(offGray, s0, s1, d0, d1, 0, 2.15);
+            addBoxSD(offRoof, s0 - 0.1, s1 + 0.1, d0 - 0.1, d1 + 0.1, 2.15, 2.28);
+            addLbl(Wp(...SD((s0 + s1) / 2, (d0 + d1) / 2), 2.8), '臨時電總盤', '#475569', 'off');
+          }
+
+          // 打包成兩個標準 glTF 2.0 (.glb) 圖層（'site'=圍籬+洗車台+出入口；'off'=工務所+工棚+警衛室）
+          const loadSiteGlb = (parts, key) => {
+            const bytes = buildGlbBytes(parts);
+            if (!bytes) return;
+            const url = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+            Cesium.Model.fromGltfAsync({ url, modelMatrix: M, upAxis: Cesium.Axis.Y, forwardAxis: Cesium.Axis.X }).then(m => {
+              setTimeout(() => URL.revokeObjectURL(url), 5000);
+              if (mySiteGen !== siteGen) { try { m.destroy(); } catch (e) { } return; }
+              try { m.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(1.0, 0.35); } catch (e) { }
+              m._k = key;
+              viewer.scene.primitives.add(m);
+              sitePrims.push(m);
+              vis();
+            });
+          };
+          loadSiteGlb([
+            { g: fGreen, css: '#ffffff', alpha: 1, met: 0.05, rough: 0.78, tex: 'fence_green' },
+            { g: fSteel, css: '#ffffff', alpha: 1, met: 0.20, rough: 0.55, tex: 'fence_steel' },
+            { g: fPost, css: '#cbd5e1', alpha: 1, met: 0.45, rough: 0.42 },
+            { g: fGate, css: '#dce4ec', alpha: 1, met: 0.42, rough: 0.40 },
+            { g: fWarn, css: '#f5be18', alpha: 1, met: 0.12, rough: 0.45 },
+            { g: fRed, css: '#e02424', alpha: 1, met: 0.15, rough: 0.35 },
+            { g: wGrate, css: '#ffffff', alpha: 1, met: 0.40, rough: 0.48, tex: 'grating' },
+            { g: wSplash, css: '#38bdf8', alpha: 0.42, met: 0.05, rough: 0.25 },
+            { g: wSteel, css: '#94a3b8', alpha: 1, met: 0.50, rough: 0.42 },
+            { g: wPool, css: '#9ca3af', alpha: 1, met: 0.0, rough: 0.85 },
+            { g: wWater, css: '#0284c7', alpha: 0.75, met: 0.10, rough: 0.15 }
+          ], 'site');
+          loadSiteGlb([
+            { g: offBody, css: '#eef2f6', alpha: 1, met: 0.08, rough: 0.72 },
+            { g: offRoof, css: '#475569', alpha: 1, met: 0.30, rough: 0.55 },
+            { g: offWin, css: '#38bdf8', alpha: 0.78, met: 0.25, rough: 0.15 },
+            { g: offBlue, css: '#2563eb', alpha: 1, met: 0.12, rough: 0.55 },
+            { g: offGray, css: '#64748b', alpha: 1, met: 0.40, rough: 0.50 }
+          ], 'off');
+          vis();
+        }
+        function vis() { const m = { fr: el('cFr').checked, nt: el('cNet').checked, sk: el('cSkt').checked, lb: el('cLbl').checked, cr: el('cCr').checked, el: el('cEl').checked, rad: el('cRad').checked && el('cCr').checked, site: el('cSite').checked, off: el('cOff').checked }; prims.forEach(p => { if (p) p.show = m[p._k] }); if (SC.eqReady) { eqPrims.forEach(p => p.show = m[p._k]); eqEnts.forEach(e => e.show = m[e._k]); sitePrims.forEach(p => p.show = m[p._k]); siteEnts.forEach(e => e.show = m[e._k]) } const lb = el('cLbl').checked; lbls.forEach(e => e.show = lb) }
         const nf = (x, d = 0) => x.toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
         function panelQty() {
           TS.forEach(T => el('h' + T + 'v').textContent = H[T] ? fname(T, H[T]) : '未搭設');
@@ -1348,9 +1631,9 @@
         TS.forEach(T => el('h' + T).addEventListener('input', e => { el('cSync').checked = false; H[T] = +e.target.value; el('h' + T + 'v').textContent = H[T] ? fname(T, H[T]) : '未搭設'; later() }));
         el('hAll').onclick = () => { el('cSync').checked = false; TS.forEach(T => { H[T] = maxK(T); el('h' + T).value = H[T] }); build() };
         el('hNone').onclick = () => { el('cSync').checked = false; TS.forEach(T => { H[T] = 0; el('h' + T).value = 0 }); build() };
-        ['cFr', 'cNet', 'cSkt', 'cLbl', 'cCr', 'cRad'].forEach(id => el(id).addEventListener('change', vis)); el('cEl').addEventListener('change', build);
-        build();
-        hs.addEventListener('input', later);
+        ['cFr', 'cNet', 'cSkt', 'cLbl', 'cCr', 'cRad', 'cSite', 'cOff'].forEach(id => el(id).addEventListener('change', vis)); el('cEl').addEventListener('change', build);
+        build(); buildSiteFacilities();
+        hs.addEventListener('input', () => { later(); buildSiteFacilities(); });
         document.getElementById('cLin').onchange = e => lines.forEach(l => l.show = e.target.checked);
         document.getElementById('cClip').onchange = e => { clip.enabled = e.target.checked; ground.show = e.target.checked };
         // ---------- 位置校正 ----------
@@ -1359,7 +1642,7 @@
           lon = A0[0] + OFF[0] / KX; lat = A0[1] + OFF[1] / KY; try { localStorage.setItem('bh13_off2', JSON.stringify(OFF)) } catch (e) { }
           mkClip(); ground.polygon.hierarchy = Cesium.Cartesian3.fromDegreesArray(siteLL().flat()); model.modelMatrix = mm();
           lines.forEach((e, i) => e.polyline.positions = linePos(META.lines[i])); tl.forEach(o => o.e.position = Cesium.Cartesian3.fromDegrees(...sh(o.L.p), baseH + o.L.h));
-          later(); offTxt()
+          later(); buildSiteFacilities(); offTxt()
         }
         const AL = [Math.sin(31.3 * Math.PI / 180), Math.cos(31.3 * Math.PI / 180)], PP = [Math.sin(301.3 * Math.PI / 180), Math.cos(301.3 * Math.PI / 180)];
         document.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { const st = +el('mvStep').value, d = b.dataset.mv, sg = d[1] === '+' ? 1 : -1, u = d[0] === 'a' ? AL : PP; OFF[0] += u[0] * st * sg; OFF[1] += u[1] * st * sg; applyOff() });
