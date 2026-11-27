@@ -149,6 +149,9 @@ async function start(){
  Cesium.GoogleMaps.defaultApiKey=key;
  const viewer=new Cesium.Viewer('cz',{globe:false,baseLayer:false,baseLayerPicker:false,geocoder:false,homeButton:false,sceneModePicker:false,navigationHelpButton:false,animation:false,timeline:false,fullscreenButton:false,infoBox:false,selectionIndicator:false});
  viewer.scene.skyAtmosphere.show=true;
+ // 模型光照固定在當地下午 2 點（不隨實際時間變暗）；Google 實景為烘焙光照不受影響
+ {const d=new Date();const t=Cesium.JulianDate.fromIso8601(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T06:00:00Z`);
+  viewer.clock.currentTime=t;viewer.clock.shouldAnimate=false;viewer.scene.light=new Cesium.SunLight({intensity:2.4,color:new Cesium.Color(1.0,0.95,0.88,1)})}
  let tileset;
  try{tileset=await Cesium.createGooglePhotorealistic3DTileset();viewer.scene.primitives.add(tileset)}
  catch(e){alert('Google 3D 圖磚載入失敗，請確認金鑰與 Map Tiles API：'+e.message);ask();return}
@@ -167,7 +170,7 @@ async function start(){
  await new Promise(r=>{let done=false;tileset.initialTilesLoaded.addEventListener(()=>{if(!done){done=true;r()}});setTimeout(()=>{if(!done){done=true;r()}},12000)});
  try{const c=await viewer.scene.sampleHeightMostDetailed([Cesium.Cartographic.fromDegrees(META.probe[0],META.probe[1])]);if(c[0]&&isFinite(c[0].height))baseH=c[0].height}catch(e){}
  const mm=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
- model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=17',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
+ model=await Cesium.Model.fromGltfAsync({url:'bh13.glb?v=18',modelMatrix:mm(),upAxis:Cesium.Axis.Y,forwardAxis:Cesium.Axis.X});
  viewer.scene.primitives.add(model);
  const ground=viewer.entities.add({polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(siteLL().flat()),height:baseH,material:Cesium.Color.fromCssColorString('#8d9196')}});
  const linePos=l=>Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.map(sh).flatMap(p=>[p[0],p[1],baseH+dH+0.25]));
@@ -178,7 +181,7 @@ async function start(){
  hs.oninput=upd;upd();
  await new Promise(r=>{if(model.ready)r();else model.readyEvent.addEventListener(r)});
  const show=(n,v)=>{try{const nd=model.getNode(n);if(nd)nd.show=v}catch(e){}};
- const BN=['BR 309玫瑰金','橫磚','豎磚','擴張網','暮冬','WINDOW','預設值'];
+ const BN=['BR 309玫瑰金','橫磚','豎磚','擴張網','暮冬','WINDOW','預設值','INTERIOR'];
  const el=id=>document.getElementById(id);
  const enuM=()=>Cesium.Transforms.eastNorthUpToFixedFrame(Cesium.Cartesian3.fromDegrees(lon,lat,baseH+dH));
  // ---------- 鷹架（框式施工架，參照「示範大樓 結構3D」畫法） ----------
