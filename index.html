@@ -375,6 +375,7 @@
     <label class="l"><input type="checkbox" id="cSite" checked>圍籬・洗車台・出入口</label>
     <label class="l"><input type="checkbox" id="cOff" checked>工務所・安衛工棚・警衛室</label>
     <label class="l"><input type="checkbox" id="cClip" checked>挖除舊飯店實景</label>
+    <label class="l"><input type="checkbox" id="cClipN" checked>挖除北側已拆建物（僑園北棟）</label>
     <h2>建物樓層（結構進度）</h2>
     <div style="font-size:14px">A棟 結構完成至 <b id="bAv"></b></div>
     <input type="range" id="bA" min="0" step="1">
@@ -504,7 +505,26 @@
         const sh = p => [p[0] + OFF[0] / KX, p[1] + OFF[1] / KY];
         let lon = A0[0] + OFF[0] / KX, lat = A0[1] + OFF[1] / KY;
         const siteLL = () => META.site.concat([META.site[0]]).map(sh);
-        let clip; const mkClip = () => { const en = clip ? clip.enabled : true; clip = new Cesium.ClippingPolygonCollection({ polygons: [new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(siteLL().flat()) })] }); clip.enabled = en; tileset.clippingPolygons = clip };
+        // 北側已拆除舊建物（僑園北棟：沿惠中路 s=89.13→135.0m，深度 d=-0.5→53.0m）
+        const _s0 = [(META.site[0][0] - A0[0]) * KX, (META.site[0][1] - A0[1]) * KY], _s4 = [(META.site[4][0] - A0[0]) * KX, (META.site[4][1] - A0[1]) * KY];
+        const _RL = Math.hypot(_s4[0] - _s0[0], _s4[1] - _s0[1]), _U = [(_s4[0] - _s0[0]) / _RL, (_s4[1] - _s0[1]) / _RL], _NV = [_U[1], -_U[0]];
+        const sdLL = (sv, dv) => { const x = _s0[0] + sv * _U[0] + dv * _NV[0], y = _s0[1] + sv * _U[1] + dv * _NV[1]; return sh([A0[0] + x / KX, A0[1] + y / KY]); };
+        const northLotLL = () => [[89.13, -0.5], [89.13, 53.0], [135.0, 53.0], [135.0, -0.5], [89.13, -0.5]].map(([s, d]) => sdLL(s, d));
+        const mergedClipLL = () => [
+          sh(META.site[0]), sh(META.site[1]), sh(META.site[2]), sh(META.site[3]),
+          sdLL(89.13, 53.0), sdLL(135.0, 53.0), sdLL(135.0, -0.5), sdLL(89.13, -0.5), sh(META.site[0])
+        ];
+        let clip;
+        const mkClip = () => {
+          const onS = document.getElementById('cClip').checked, onN = document.getElementById('cClipN').checked;
+          const polys = [];
+          if (onS && onN) polys.push(new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(mergedClipLL().flat()) }));
+          else if (onS) polys.push(new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(siteLL().flat()) }));
+          else if (onN) polys.push(new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(northLotLL().flat()) }));
+          clip = new Cesium.ClippingPolygonCollection({ polygons: polys });
+          clip.enabled = polys.length > 0;
+          tileset.clippingPolygons = clip;
+        };
         mkClip();
         const look = (h, p, r) => viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(lon, lat, baseH + 40), 70), { offset: new Cesium.HeadingPitchRange(Cesium.Math.toRadians(h), Cesium.Math.toRadians(p), r), duration: 1.2 });
         let baseH = 98, dH = 0, model;
@@ -518,11 +538,12 @@
         viewer.scene.primitives.add(model);
         try { model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(1.0, 0.3) } catch (e) { }
         const ground = viewer.entities.add({ polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(siteLL().flat()), height: baseH, material: Cesium.Color.fromCssColorString('#8d9196') } });
+        const groundN = viewer.entities.add({ polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(northLotLL().flat()), height: baseH, material: Cesium.Color.fromCssColorString('#7b8086') } });
         const linePos = l => Cesium.Cartesian3.fromDegreesArrayHeights(l.pts.map(sh).flatMap(p => [p[0], p[1], baseH + dH + 0.25]));
         const lines = META.lines.map(l => viewer.entities.add({ name: l.name, polyline: { positions: linePos(l), width: l.w, material: Cesium.Color.fromCssColorString(l.color), depthFailMaterial: Cesium.Color.fromCssColorString(l.color).withAlpha(0.35) } }));
         const tl = META.labels.map(L => ({ L, e: viewer.entities.add({ position: Cesium.Cartesian3.fromDegrees(...sh(L.p), baseH + L.h), label: { text: L.t, font: 'bold 15px sans-serif', fillColor: Cesium.Color.WHITE, showBackground: true, backgroundColor: Cesium.Color.fromCssColorString('#1b2128cc'), disableDepthTestDistance: 1e9 } }) }));
         const hs = document.getElementById('hs'), hv = document.getElementById('hv');
-        const upd = () => { dH = +hs.value; hv.textContent = (dH >= 0 ? '+' : '') + dH.toFixed(1) + ' m'; model.modelMatrix = mm(); ground.polygon.height = baseH + dH; lines.forEach((e, i) => e.polyline.positions = linePos(META.lines[i])) };
+        const upd = () => { dH = +hs.value; hv.textContent = (dH >= 0 ? '+' : '') + dH.toFixed(1) + ' m'; model.modelMatrix = mm(); ground.polygon.height = baseH + dH; groundN.polygon.height = baseH + dH; lines.forEach((e, i) => e.polyline.positions = linePos(META.lines[i])) };
         hs.oninput = upd; upd();
         await new Promise(r => { if (model.ready) r(); else model.readyEvent.addEventListener(r) });
         const show = (n, v) => { try { const nd = model.getNode(n); if (nd) nd.show = v } catch (e) { } };
@@ -1635,12 +1656,14 @@
         build(); buildSiteFacilities();
         hs.addEventListener('input', () => { later(); buildSiteFacilities(); });
         document.getElementById('cLin').onchange = e => lines.forEach(l => l.show = e.target.checked);
-        document.getElementById('cClip').onchange = e => { clip.enabled = e.target.checked; ground.show = e.target.checked };
+        const updClip = () => { mkClip(); ground.show = document.getElementById('cClip').checked; groundN.show = document.getElementById('cClipN').checked; };
+        document.getElementById('cClip').onchange = updClip;
+        document.getElementById('cClipN').onchange = updClip;
         // ---------- 位置校正 ----------
         const offTxt = () => { el('offTxt').textContent = `目前偏移：東 ${OFF[0].toFixed(2)} m、北 ${OFF[1].toFixed(2)} m` };
         function applyOff() {
           lon = A0[0] + OFF[0] / KX; lat = A0[1] + OFF[1] / KY; try { localStorage.setItem('bh13_off2', JSON.stringify(OFF)) } catch (e) { }
-          mkClip(); ground.polygon.hierarchy = Cesium.Cartesian3.fromDegreesArray(siteLL().flat()); model.modelMatrix = mm();
+          mkClip(); ground.polygon.hierarchy = Cesium.Cartesian3.fromDegreesArray(siteLL().flat()); groundN.polygon.hierarchy = Cesium.Cartesian3.fromDegreesArray(northLotLL().flat()); model.modelMatrix = mm();
           lines.forEach((e, i) => e.polyline.positions = linePos(META.lines[i])); tl.forEach(o => o.e.position = Cesium.Cartesian3.fromDegrees(...sh(o.L.p), baseH + o.L.h));
           later(); buildSiteFacilities(); offTxt()
         }
